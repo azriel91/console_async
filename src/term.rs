@@ -230,9 +230,10 @@ impl Term {
     #[doc(hidden)]
     pub async fn write_str(&self, s: &str) -> io::Result<()> {
         match self.inner.buffer {
-            Some(ref buffer) => buffer.lock().unwrap().write_all(s.as_bytes()).await,
-            None => self.write_through(s.as_bytes()).await,
+            Some(ref buffer) => buffer.lock().unwrap().write_all(s.as_bytes()).await?,
+            None => self.write_through(s.as_bytes()).await?,
         }
+        self.flush().await
     }
 
     /// Write a string to the terminal and add a newline.
@@ -242,10 +243,10 @@ impl Term {
                 let mut buffer = mutex.lock().unwrap();
                 buffer.extend_from_slice(s.as_bytes());
                 buffer.push(b'\n');
-                Ok(())
             }
-            None => self.write_through(format!("{}\n", s).as_bytes()).await,
+            None => self.write_through(format!("{}\n", s).as_bytes()).await?,
         }
+        self.flush().await
     }
 
     /// Read a single character from the terminal.
@@ -318,14 +319,12 @@ impl Term {
                     if chars.pop().is_some() {
                         self.clear_chars(1).await?;
                     }
-                    self.flush().await?;
                 }
                 Key::Char(chr) => {
                     chars.push(chr);
                     let mut bytes_char = [0; 4];
                     chr.encode_utf8(&mut bytes_char);
                     self.write_str(chr.encode_utf8(&mut bytes_char)).await?;
-                    self.flush().await?;
                 }
                 Key::Enter => {
                     self.write_line("").await?;
@@ -368,6 +367,15 @@ impl Term {
                 buffer.clear();
             }
         }
+        match self.inner.target {
+            TermTarget::Stdout => tokio::io::stdout().flush().await?,
+            TermTarget::Stderr => tokio::io::stderr().flush().await?,
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                write.flush().await?
+            }
+        }
         Ok(())
     }
 
@@ -377,15 +385,32 @@ impl Term {
     /// the terminal.  This is unnecessary for unbuffered terminals which
     /// will automatically flush.
     pub fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut poll = Poll::Ready(Ok(()));
         if let Some(ref buffer) = self.inner.buffer {
             let mut buffer = buffer.lock().unwrap();
             if !buffer.is_empty() {
-                poll = self.poll_write_through(cx, &buffer[..]).map_ok(|_n| ());
+                let _todo = self.poll_write_through(cx, &buffer[..]);
                 buffer.clear();
             }
         }
-        poll
+
+        match self.inner.target {
+            TermTarget::Stdout => {
+                let mut stdout = tokio::io::stdout();
+                let stdout = Pin::new(&mut stdout);
+                stdout.poll_flush(cx)
+            }
+            TermTarget::Stderr => {
+                let mut stderr = tokio::io::stderr();
+                let stderr = Pin::new(&mut stderr);
+                stderr.poll_flush(cx)
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_flush(cx)
+            }
+        }
     }
 
     /// Polls for this to be shutdown.
@@ -616,6 +641,7 @@ impl Term {
         self.poll_write_through_common(cx, bytes)
     }
 
+    #[cfg(all(windows, feature = "windows-console-colors"))]
     pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
         match self.inner.target {
             TermTarget::Stdout => {
@@ -631,6 +657,24 @@ impl Term {
                 let mut write = write.lock().unwrap();
                 write.write_all(bytes).await?;
                 write.flush().await?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(all(windows, feature = "windows-console-colors")))]
+    pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
+        match self.inner.target {
+            TermTarget::Stdout => {
+                tokio::io::stdout().write_all(bytes).await?;
+            }
+            TermTarget::Stderr => {
+                tokio::io::stderr().write_all(bytes).await?;
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                write.write_all(bytes).await?;
             }
         }
         Ok(())
