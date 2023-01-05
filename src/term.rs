@@ -443,7 +443,8 @@ impl Term {
     /// Move the cursor to row `x` and column `y`. Values are 0-based.
     #[inline]
     pub async fn move_cursor_to(&self, x: usize, y: usize) -> io::Result<()> {
-        move_cursor_to(self, x, y).await
+        move_cursor_to(self, x, y).await?;
+        self.flush().await
     }
 
     /// Move the cursor up by `n` lines, if possible.
@@ -453,7 +454,8 @@ impl Term {
     /// possible).
     #[inline]
     pub async fn move_cursor_up(&self, n: usize) -> io::Result<()> {
-        move_cursor_up(self, n).await
+        move_cursor_up(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor down by `n` lines, if possible.
@@ -463,7 +465,8 @@ impl Term {
     /// down as possible).
     #[inline]
     pub async fn move_cursor_down(&self, n: usize) -> io::Result<()> {
-        move_cursor_down(self, n).await
+        move_cursor_down(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor `n` characters to the left, if possible.
@@ -473,7 +476,8 @@ impl Term {
     /// far to the left as possible).
     #[inline]
     pub async fn move_cursor_left(&self, n: usize) -> io::Result<()> {
-        move_cursor_left(self, n).await
+        move_cursor_left(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor `n` characters to the right.
@@ -483,7 +487,8 @@ impl Term {
     /// (i.e., as far to the right as possible).
     #[inline]
     pub async fn move_cursor_right(&self, n: usize) -> io::Result<()> {
-        move_cursor_right(self, n).await
+        move_cursor_right(self, n).await?;
+        self.flush().await
     }
 
     /// Clear the current line.
@@ -491,7 +496,8 @@ impl Term {
     /// Position the cursor at the beginning of the current line.
     #[inline]
     pub async fn clear_line(&self) -> io::Result<()> {
-        clear_line(self).await
+        clear_line(self).await?;
+        self.flush().await
     }
 
     /// Clear the last `n` lines before the current line.
@@ -512,20 +518,23 @@ impl Term {
     /// Move the cursor to the upper left corner of the screen.
     #[inline]
     pub async fn clear_screen(&self) -> io::Result<()> {
-        clear_screen(self).await
+        clear_screen(self).await?;
+        self.flush().await
     }
 
     /// Clear everything from the current cursor position to the end of the
     /// screen. The cursor stays in its position.
     #[inline]
     pub async fn clear_to_end_of_screen(&self) -> io::Result<()> {
-        clear_to_end_of_screen(self).await
+        clear_to_end_of_screen(self).await?;
+        self.flush().await
     }
 
     /// Clear the last `n` characters of the current line.
     #[inline]
     pub async fn clear_chars(&self, n: usize) -> io::Result<()> {
-        clear_chars(self, n).await
+        clear_chars(self, n).await?;
+        self.flush().await
     }
 
     /// Set the terminal title.
@@ -539,13 +548,15 @@ impl Term {
     /// Make the cursor visible again.
     #[inline]
     pub async fn show_cursor(&self) -> io::Result<()> {
-        show_cursor(self).await
+        show_cursor(self).await?;
+        self.flush().await
     }
 
     /// Hide the cursor.
     #[inline]
     pub async fn hide_cursor(&self) -> io::Result<()> {
-        hide_cursor(self).await
+        hide_cursor(self).await?;
+        self.flush().await
     }
 
     // helpers
