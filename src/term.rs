@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, Stderr, Stdout};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -37,8 +37,8 @@ pub struct ReadWritePair {
 /// Where the term is writing.
 #[derive(Debug, Clone)]
 pub enum TermTarget {
-    Stdout,
-    Stderr,
+    Stdout(Arc<Mutex<Stdout>>),
+    Stderr(Arc<Mutex<Stderr>>),
     #[cfg(unix)]
     ReadWritePair(ReadWritePair),
 }
@@ -153,7 +153,7 @@ impl Term {
     #[inline]
     pub fn stdout() -> Term {
         Term::with_inner(TermInner {
-            target: TermTarget::Stdout,
+            target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
             buffer: None,
         })
     }
@@ -162,7 +162,7 @@ impl Term {
     #[inline]
     pub fn stderr() -> Term {
         Term::with_inner(TermInner {
-            target: TermTarget::Stderr,
+            target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
             buffer: None,
         })
     }
@@ -170,7 +170,7 @@ impl Term {
     /// Return a new buffered terminal.
     pub fn buffered_stdout() -> Term {
         Term::with_inner(TermInner {
-            target: TermTarget::Stdout,
+            target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
             buffer: Some(Mutex::new(vec![])),
         })
     }
@@ -178,7 +178,7 @@ impl Term {
     /// Return a new buffered terminal to stderr.
     pub fn buffered_stderr() -> Term {
         Term::with_inner(TermInner {
-            target: TermTarget::Stderr,
+            target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
             buffer: Some(Mutex::new(vec![])),
         })
     }
@@ -214,8 +214,8 @@ impl Term {
     #[inline]
     pub fn style(&self) -> Style {
         match self.inner.target {
-            TermTarget::Stderr => Style::new().for_stderr(),
-            TermTarget::Stdout => Style::new().for_stdout(),
+            TermTarget::Stderr(..) => Style::new().for_stderr(),
+            TermTarget::Stdout(..) => Style::new().for_stdout(),
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref style, .. }) => style.clone(),
         }
@@ -367,9 +367,9 @@ impl Term {
                 buffer.clear();
             }
         }
-        match self.inner.target {
-            TermTarget::Stdout => tokio::io::stdout().flush().await?,
-            TermTarget::Stderr => tokio::io::stderr().flush().await?,
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => stdout.lock().unwrap().flush().await?,
+            TermTarget::Stderr(stderr) => stderr.lock().unwrap().flush().await?,
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
                 let mut write = write.lock().unwrap();
@@ -393,15 +393,15 @@ impl Term {
             }
         }
 
-        match self.inner.target {
-            TermTarget::Stdout => {
-                let mut stdout = tokio::io::stdout();
-                let stdout = Pin::new(&mut stdout);
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                let stdout = Pin::new(&mut *stdout);
                 stdout.poll_flush(cx)
             }
-            TermTarget::Stderr => {
-                let mut stderr = tokio::io::stderr();
-                let stderr = Pin::new(&mut stderr);
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                let stderr = Pin::new(&mut *stderr);
                 stderr.poll_flush(cx)
             }
             #[cfg(unix)]
@@ -417,15 +417,15 @@ impl Term {
     pub fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut poll = self.as_mut().poll_flush(cx);
         if poll.is_ready() {
-            poll = match self.inner.target {
-                TermTarget::Stdout => {
-                    let mut stdout = tokio::io::stdout();
-                    let stdout = Pin::new(&mut stdout);
+            poll = match &self.inner.target {
+                TermTarget::Stdout(stdout) => {
+                    let mut stdout = stdout.lock().unwrap();
+                    let stdout = Pin::new(&mut *stdout);
                     stdout.poll_shutdown(cx)
                 }
-                TermTarget::Stderr => {
-                    let mut stderr = tokio::io::stderr();
-                    let stderr = Pin::new(&mut stderr);
+                TermTarget::Stderr(stderr) => {
+                    let mut stderr = stderr.lock().unwrap();
+                    let stderr = Pin::new(&mut *stderr);
                     stderr.poll_shutdown(cx)
                 }
                 #[cfg(unix)]
@@ -529,12 +529,13 @@ impl Term {
     ///
     /// Position the cursor at the beginning of the first line that was cleared.
     pub async fn clear_last_lines(&self, n: usize) -> io::Result<()> {
-        self.move_cursor_up(n).await?;
+        move_cursor_up(self, n).await?;
         for _ in 0..n {
-            self.clear_line().await?;
-            self.move_cursor_down(1).await?;
+            clear_line(self).await?;
+            move_cursor_down(self, 1).await?;
         }
-        self.move_cursor_up(n).await?;
+        move_cursor_up(self, n).await?;
+        self.flush().await?;
         Ok(())
     }
 
@@ -587,15 +588,15 @@ impl Term {
     // helpers
 
     fn poll_write(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
-        match self.inner.target {
-            TermTarget::Stdout => {
-                let mut stdout = tokio::io::stdout();
-                let stdout = Pin::new(&mut stdout);
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                let stdout = Pin::new(&mut *stdout);
                 stdout.poll_write(cx, bytes)
             }
-            TermTarget::Stderr => {
-                let mut stderr = tokio::io::stderr();
-                let stderr = Pin::new(&mut stderr);
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                let stderr = Pin::new(&mut *stderr);
                 stderr.poll_write(cx, bytes)
             }
             #[cfg(unix)]
@@ -613,8 +614,8 @@ impl Term {
             self.write_through_common(bytes).await
         } else {
             match self.inner.target {
-                TermTarget::Stdout => console_colors(self, Console::stdout()?, bytes),
-                TermTarget::Stderr => console_colors(self, Console::stderr()?, bytes),
+                TermTarget::Stdout(_stdout) => console_colors(self, Console::stdout()?, bytes),
+                TermTarget::Stderr(_stderr) => console_colors(self, Console::stderr()?, bytes),
             }
         }
     }
@@ -625,8 +626,8 @@ impl Term {
             self.poll_write_through_common(cx, bytes)
         } else {
             match self.inner.target {
-                TermTarget::Stdout => console_colors(self, Console::stdout()?, bytes),
-                TermTarget::Stderr => console_colors(self, Console::stderr()?, bytes),
+                TermTarget::Stdout(_stdout) => console_colors(self, Console::stdout()?, bytes),
+                TermTarget::Stderr(_stderr) => console_colors(self, Console::stderr()?, bytes),
             }
         }
     }
@@ -644,13 +645,15 @@ impl Term {
     #[cfg(all(windows, feature = "windows-console-colors"))]
     pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
         match self.inner.target {
-            TermTarget::Stdout => {
-                tokio::io::stdout().write_all(bytes).await?;
-                tokio::io::stdout().flush().await?;
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                stdout.write_all(bytes).await?;
+                stdout.flush().await?;
             }
-            TermTarget::Stderr => {
-                tokio::io::stderr().write_all(bytes).await?;
-                tokio::io::stderr().flush().await?;
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                stderr.write_all(bytes).await?;
+                stderr.flush().await?;
             }
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
@@ -664,12 +667,12 @@ impl Term {
 
     #[cfg(not(all(windows, feature = "windows-console-colors")))]
     pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
-        match self.inner.target {
-            TermTarget::Stdout => {
-                tokio::io::stdout().write_all(bytes).await?;
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                stdout.lock().unwrap().write_all(bytes).await?;
             }
-            TermTarget::Stderr => {
-                tokio::io::stderr().write_all(bytes).await?;
+            TermTarget::Stderr(stderr) => {
+                stderr.lock().unwrap().write_all(bytes).await?;
             }
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
@@ -685,16 +688,16 @@ impl Term {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        match self.inner.target {
-            TermTarget::Stdout => {
-                let mut stdout = tokio::io::stdout();
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
                 let mut poll = {
-                    let stdout = Pin::new(&mut stdout);
+                    let stdout = Pin::new(&mut *stdout);
                     stdout.poll_write(cx, bytes)
                 };
 
                 poll = if let Poll::Ready(Ok(n)) = poll {
-                    let stdout = Pin::new(&mut stdout);
+                    let stdout = Pin::new(&mut *stdout);
                     stdout.poll_flush(cx).map_ok(|()| n)
                 } else {
                     poll
@@ -702,15 +705,15 @@ impl Term {
 
                 poll
             }
-            TermTarget::Stderr => {
-                let mut stderr = tokio::io::stderr();
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
                 let mut poll = {
-                    let stderr = Pin::new(&mut stderr);
+                    let stderr = Pin::new(&mut *stderr);
                     stderr.poll_write(cx, bytes)
                 };
 
                 poll = if let Poll::Ready(Ok(n)) = poll {
-                    let stderr = Pin::new(&mut stderr);
+                    let stderr = Pin::new(&mut *stderr);
                     stderr.poll_flush(cx).map_ok(|()| n)
                 } else {
                     poll
@@ -762,9 +765,9 @@ pub fn user_attended_stderr() -> bool {
 #[cfg(unix)]
 impl AsRawFd for Term {
     fn as_raw_fd(&self) -> RawFd {
-        match self.inner.target {
-            TermTarget::Stdout => libc::STDOUT_FILENO,
-            TermTarget::Stderr => libc::STDERR_FILENO,
+        match &self.inner.target {
+            TermTarget::Stdout(_stdout) => libc::STDOUT_FILENO,
+            TermTarget::Stderr(_stderr) => libc::STDERR_FILENO,
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
                 write.lock().unwrap().as_raw_fd()
             }
@@ -781,8 +784,8 @@ impl AsRawHandle for Term {
 
         unsafe {
             GetStdHandle(match self.inner.target {
-                TermTarget::Stdout => STD_OUTPUT_HANDLE,
-                TermTarget::Stderr => STD_ERROR_HANDLE,
+                TermTarget::Stdout(_stdout) => STD_OUTPUT_HANDLE,
+                TermTarget::Stderr(_stderr) => STD_ERROR_HANDLE,
             }) as RawHandle
         }
     }
