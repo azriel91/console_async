@@ -1,6 +1,8 @@
-use std::io::{self, Write};
-use std::thread;
-use std::time::Duration;
+use std::{
+    io::{self, Write},
+    thread,
+    time::Duration,
+};
 
 use console::{style, Term};
 
