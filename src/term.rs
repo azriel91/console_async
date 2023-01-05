@@ -244,7 +244,7 @@ impl Term {
                 buffer.extend_from_slice(s.as_bytes());
                 buffer.push(b'\n');
             }
-            None => self.write_through(format!("{}\n", s).as_bytes()).await?,
+            None => self.write_through(format!("{}\n\r", s).as_bytes()).await?,
         }
         self.flush().await
     }
