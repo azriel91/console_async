@@ -2,14 +2,11 @@ use std::{
     fmt::{Debug, Display},
     io,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
-use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
-    sync::Mutex,
-};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -233,7 +230,7 @@ impl Term {
     #[doc(hidden)]
     pub async fn write_str(&self, s: &str) -> io::Result<()> {
         match self.inner.buffer {
-            Some(ref buffer) => buffer.lock().await.write_all(s.as_bytes()).await?,
+            Some(ref buffer) => buffer.lock().unwrap().write_all(s.as_bytes()).await?,
             None => self.write_through(s.as_bytes()).await?,
         }
         self.flush().await
@@ -243,7 +240,7 @@ impl Term {
     pub async fn write_line(&self, s: &str) -> io::Result<()> {
         match self.inner.buffer {
             Some(ref mutex) => {
-                let mut buffer = mutex.lock().await;
+                let mut buffer = mutex.lock().unwrap();
                 buffer.extend_from_slice(s.as_bytes());
                 buffer.push(b'\n');
             }
@@ -364,7 +361,7 @@ impl Term {
     /// will automatically flush.
     pub async fn flush(&self) -> io::Result<()> {
         if let Some(ref buffer) = self.inner.buffer {
-            let mut buffer = buffer.lock().await;
+            let mut buffer = buffer.lock().unwrap();
             if !buffer.is_empty() {
                 self.write_through(&buffer[..]).await?;
                 buffer.clear();
@@ -375,7 +372,7 @@ impl Term {
             TermTarget::Stderr => tokio::io::stderr().flush().await?,
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
-                let mut write = write.lock().await;
+                let mut write = write.lock().unwrap();
                 write.flush().await?
             }
         }
@@ -388,13 +385,12 @@ impl Term {
     /// the terminal.  This is unnecessary for unbuffered terminals which
     /// will automatically flush.
     pub fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if let Some(ref _buffer) = self.inner.buffer {
-            // let mut buffer = buffer.lock().await;
-            // if !buffer.is_empty() {
-            //     let _todo = self.poll_write_through(cx, &buffer[..]);
-            //     buffer.clear();
-            // }
-            todo!()
+        if let Some(ref buffer) = self.inner.buffer {
+            let mut buffer = buffer.lock().unwrap();
+            if !buffer.is_empty() {
+                let _todo = self.poll_write_through(cx, &buffer[..]);
+                buffer.clear();
+            }
         }
 
         match self.inner.target {
@@ -409,11 +405,10 @@ impl Term {
                 stderr.poll_flush(cx)
             }
             #[cfg(unix)]
-            TermTarget::ReadWritePair(ReadWritePair { write: _, .. }) => {
-                // let mut write = write.lock().await;
-                // let write = Pin::new(&mut *write);
-                // write.poll_flush(cx)
-                todo!()
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_flush(cx)
             }
         }
     }
@@ -434,11 +429,10 @@ impl Term {
                     stderr.poll_shutdown(cx)
                 }
                 #[cfg(unix)]
-                TermTarget::ReadWritePair(ReadWritePair { write: _, .. }) => {
-                    // let mut write = write.lock().await;
-                    // let write = Pin::new(&mut *write);
-                    // write.poll_shutdown(cx)
-                    todo!()
+                TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                    let mut write = write.lock().unwrap();
+                    let write = Pin::new(&mut *write);
+                    write.poll_shutdown(cx)
                 }
             };
         }
@@ -605,11 +599,10 @@ impl Term {
                 stderr.poll_write(cx, bytes)
             }
             #[cfg(unix)]
-            TermTarget::ReadWritePair(ReadWritePair { write: _, .. }) => {
-                // let mut write = write.lock().await;
-                // let write = Pin::new(&mut *write);
-                // write.poll_write(cx, bytes)
-                todo!()
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_write(cx, bytes)
             }
         }
     }
@@ -644,8 +637,8 @@ impl Term {
     }
 
     #[cfg(not(all(windows, feature = "windows-console-colors")))]
-    fn _poll_write_through(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
-        self._poll_write_through_common(cx, bytes)
+    fn poll_write_through(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        self.poll_write_through_common(cx, bytes)
     }
 
     #[cfg(all(windows, feature = "windows-console-colors"))]
@@ -661,7 +654,7 @@ impl Term {
             }
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
-                let mut write = write.lock().await;
+                let mut write = write.lock().unwrap();
                 write.write_all(bytes).await?;
                 write.flush().await?;
             }
@@ -680,14 +673,14 @@ impl Term {
             }
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
-                let mut write = write.lock().await;
+                let mut write = write.lock().unwrap();
                 write.write_all(bytes).await?;
             }
         }
         Ok(())
     }
 
-    pub(crate) fn _poll_write_through_common(
+    pub(crate) fn poll_write_through_common(
         &self,
         cx: &mut Context<'_>,
         bytes: &[u8],
@@ -726,22 +719,21 @@ impl Term {
                 poll
             }
             #[cfg(unix)]
-            TermTarget::ReadWritePair(ReadWritePair { write: _, .. }) => {
-                // let mut write = write.lock().await;
-                // let mut poll = {
-                //     let write = Pin::new(&mut *write);
-                //     write.poll_write(cx, bytes)
-                // };
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let mut poll = {
+                    let write = Pin::new(&mut *write);
+                    write.poll_write(cx, bytes)
+                };
 
-                // poll = if let Poll::Ready(Ok(n)) = poll {
-                //     let write = Pin::new(&mut *write);
-                //     write.poll_flush(cx).map_ok(|()| n)
-                // } else {
-                //     poll
-                // };
+                poll = if let Poll::Ready(Ok(n)) = poll {
+                    let write = Pin::new(&mut *write);
+                    write.poll_flush(cx).map_ok(|()| n)
+                } else {
+                    poll
+                };
 
-                // poll
-                todo!()
+                poll
             }
         }
     }
@@ -773,9 +765,8 @@ impl AsRawFd for Term {
         match self.inner.target {
             TermTarget::Stdout => libc::STDOUT_FILENO,
             TermTarget::Stderr => libc::STDERR_FILENO,
-            TermTarget::ReadWritePair(ReadWritePair { write: _, .. }) => {
-                // write.lock().await.as_raw_fd()
-                todo!()
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                write.lock().unwrap().as_raw_fd()
             }
         }
     }
@@ -804,11 +795,9 @@ impl AsyncWrite for Term {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         match self.inner.buffer {
-            Some(ref _buffer) => {
-                // Poll::Ready(std::io::Write::write_all(&mut *buffer.lock().await,
-                // buf).map(|()| buf.len()))
-                todo!()
-            }
+            Some(ref buffer) => Poll::Ready(
+                std::io::Write::write_all(&mut *buffer.lock().unwrap(), buf).map(|()| buf.len()),
+            ),
             None => Term::poll_write(&self, cx, buf),
         }
     }
