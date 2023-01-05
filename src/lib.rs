@@ -19,8 +19,7 @@
 //!
 //! ```
 //! # fn test() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::thread;
-//! use std::time::Duration;
+//! use std::{thread, time::Duration};
 //!
 //! use console::Term;
 //!
@@ -72,18 +71,18 @@
 //! By default all features are enabled.  The following features exist:
 //!
 //! * `unicode-width`: adds support for unicode width calculations
-//! * `ansi-parsing`: adds support for parsing ansi codes (this adds support
-//!   for stripping and taking ansi escape codes into account for length
+//! * `ansi-parsing`: adds support for parsing ansi codes (this adds support for
+//!   stripping and taking ansi escape codes into account for length
 //!   calculations).
 
-pub use crate::kb::Key;
-pub use crate::term::{
-    user_attended, user_attended_stderr, Term, TermFamily, TermFeatures, TermTarget,
-};
-pub use crate::utils::{
-    colors_enabled, colors_enabled_stderr, measure_text_width, pad_str, pad_str_with,
-    set_colors_enabled, set_colors_enabled_stderr, style, truncate_str, Alignment, Attribute,
-    Color, Emoji, Style, StyledObject,
+pub use crate::{
+    kb::Key,
+    term::{user_attended, user_attended_stderr, Term, TermFamily, TermFeatures, TermTarget},
+    utils::{
+        colors_enabled, colors_enabled_stderr, measure_text_width, pad_str, pad_str_with,
+        set_colors_enabled, set_colors_enabled_stderr, style, truncate_str, Alignment, Attribute,
+        Color, Emoji, Style, StyledObject,
+    },
 };
 
 #[cfg(feature = "ansi-parsing")]

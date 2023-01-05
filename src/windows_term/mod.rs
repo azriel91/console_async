@@ -1,34 +1,44 @@
-use std::cmp;
-use std::env;
-use std::ffi::OsStr;
-use std::fmt::Display;
-use std::io;
-use std::iter::once;
-use std::mem;
-use std::os::raw::c_void;
-use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::AsRawHandle;
-use std::slice;
-use std::{char, mem::MaybeUninit};
-
-use encode_unicode::error::InvalidUtf16Tuple;
-use encode_unicode::CharExt;
-use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
-use windows_sys::Win32::Storage::FileSystem::{
-    FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO,
+use std::{
+    char, cmp, env,
+    ffi::OsStr,
+    fmt::Display,
+    io,
+    iter::once,
+    mem,
+    mem::MaybeUninit,
+    os::{
+        raw::c_void,
+        windows::{ffi::OsStrExt, io::AsRawHandle},
+    },
+    slice,
 };
-use windows_sys::Win32::System::Console::{
-    FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleCursorInfo, GetConsoleMode,
-    GetConsoleScreenBufferInfo, GetNumberOfConsoleInputEvents, GetStdHandle, ReadConsoleInputW,
-    SetConsoleCursorInfo, SetConsoleCursorPosition, SetConsoleMode, SetConsoleTitleW,
-    CONSOLE_CURSOR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, INPUT_RECORD, KEY_EVENT,
-    KEY_EVENT_RECORD, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 
-use crate::common_term;
-use crate::kb::Key;
-use crate::term::{Term, TermTarget};
+use encode_unicode::{error::InvalidUtf16Tuple, CharExt};
+use windows_sys::Win32::{
+    Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
+    Storage::FileSystem::{FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO},
+};
+
+use encode_unicode::{error::InvalidUtf16Tuple, CharExt};
+use windows_sys::Win32::{
+    Foundation::{CHAR, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
+    Storage::FileSystem::{FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO},
+    System::Console::{
+        FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleCursorInfo,
+        GetConsoleMode, GetConsoleScreenBufferInfo, GetNumberOfConsoleInputEvents, GetStdHandle,
+        ReadConsoleInputW, SetConsoleCursorInfo, SetConsoleCursorPosition, SetConsoleMode,
+        SetConsoleTitleW, CONSOLE_CURSOR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, INPUT_RECORD,
+        KEY_EVENT, KEY_EVENT_RECORD, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE,
+    },
+    UI::Input::KeyboardAndMouse::VIRTUAL_KEY,
+};
+
+use crate::{
+    common_term,
+    kb::Key,
+    term::{Term, TermTarget},
+};
 
 #[cfg(feature = "windows-console-colors")]
 mod colors;
@@ -40,7 +50,8 @@ const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x4;
 pub const DEFAULT_WIDTH: u16 = 79;
 
 pub fn as_handle(term: &Term) -> HANDLE {
-    // convert between windows_sys::Win32::Foundation::HANDLE and std::os::windows::raw::HANDLE
+    // convert between windows_sys::Win32::Foundation::HANDLE and
+    // std::os::windows::raw::HANDLE
     term.as_raw_handle() as HANDLE
 }
 
@@ -112,7 +123,8 @@ unsafe fn console_on_any(fds: &[STD_HANDLE]) -> bool {
 pub fn terminal_size(out: &Term) -> Option<(u16, u16)> {
     use windows_sys::Win32::System::Console::SMALL_RECT;
 
-    // convert between windows_sys::Win32::Foundation::HANDLE and std::os::windows::raw::HANDLE
+    // convert between windows_sys::Win32::Foundation::HANDLE and
+    // std::os::windows::raw::HANDLE
     let handle = out.as_raw_handle();
     let hand = handle as windows_sys::Win32::Foundation::HANDLE;
 
@@ -386,8 +398,9 @@ pub fn read_single_key() -> io::Result<Key> {
         // This is a unicode character, in utf-16. Try to decode it by itself.
         match char::from_utf16_tuple((unicode_char, None)) {
             Ok(c) => {
-                // Maintain backward compatibility. The previous implementation (_getwch()) would return
-                // a special keycode for `Enter`, while ReadConsoleInputW() prefers to use '\r'.
+                // Maintain backward compatibility. The previous implementation (_getwch())
+                // would return a special keycode for `Enter`, while
+                // ReadConsoleInputW() prefers to use '\r'.
                 if c == '\r' {
                     Ok(Key::Enter)
                 } else if c == '\x08' {
@@ -418,8 +431,9 @@ pub fn read_single_key() -> io::Result<Key> {
                 match char::from_utf16_tuple((unicode_char, Some(next_surrogate))) {
                     Ok(c) => Ok(Key::Char(c)),
 
-                    // Return an InvalidData error. This is the recommended value for UTF-related I/O errors.
-                    // (This error is given when reading a non-UTF8 file into a String, for example.)
+                    // Return an InvalidData error. This is the recommended value for UTF-related
+                    // I/O errors. (This error is given when reading a non-UTF8
+                    // file into a String, for example.)
                     Err(e) => {
                         let message = format!(
                             "Read invalid surrogate pair ({}, {}): {}",
@@ -430,8 +444,9 @@ pub fn read_single_key() -> io::Result<Key> {
                 }
             }
 
-            // Return an InvalidData error. This is the recommended value for UTF-related I/O errors.
-            // (This error is given when reading a non-UTF8 file into a String, for example.)
+            // Return an InvalidData error. This is the recommended value for UTF-related I/O
+            // errors. (This error is given when reading a non-UTF8 file into a String,
+            // for example.)
             Err(e) => {
                 let message = format!("Read invalid utf16 {}: {}", unicode_char, e);
                 Err(io::Error::new(io::ErrorKind::InvalidData, message))
@@ -449,12 +464,13 @@ fn get_stdin_handle() -> io::Result<HANDLE> {
     }
 }
 
-/// Get the number of pending events in the ReadConsoleInput queue. Note that while
-/// these aren't necessarily key events, the only way that multiple events can be
-/// put into the queue simultaneously is if a unicode character spanning multiple u16's
-/// is read.
+/// Get the number of pending events in the ReadConsoleInput queue. Note that
+/// while these aren't necessarily key events, the only way that multiple events
+/// can be put into the queue simultaneously is if a unicode character spanning
+/// multiple u16's is read.
 ///
-/// Therefore, this is accurate as long as at least one KEY_EVENT has already been read.
+/// Therefore, this is accurate as long as at least one KEY_EVENT has already
+/// been read.
 fn get_key_event_count() -> io::Result<u32> {
     let handle = get_stdin_handle()?;
     let mut event_count: u32 = unsafe { mem::zeroed() };

@@ -1,8 +1,6 @@
 extern crate console;
 
-use std::io;
-use std::thread;
-use std::time::Duration;
+use std::{io, thread, time::Duration};
 
 use console::{style, Term};
 

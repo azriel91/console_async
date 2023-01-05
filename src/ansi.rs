@@ -275,8 +275,9 @@ mod tests {
     use proptest::prelude::*;
     use regex::Regex;
 
-    // The manual dfa `State` is a handwritten translation from the previously used regex. That
-    // regex is kept here and used to ensure that the new matches are the same as the old
+    // The manual dfa `State` is a handwritten translation from the previously used
+    // regex. That regex is kept here and used to ensure that the new matches
+    // are the same as the old
     lazy_static! {
         static ref STRIP_ANSI_RE: Regex = Regex::new(
             r"[\x1b\x9b]([()][012AB]|[\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><])",
@@ -301,9 +302,10 @@ mod tests {
 
     #[test]
     fn dfa_matches_regex_on_small_strings() {
-        // To make sure the test runs in a reasonable time this is a slimmed down list of
-        // characters to reduce the groups that are only used with each other along with one
-        // arbitrarily chosen character not used in the regex (' ')
+        // To make sure the test runs in a reasonable time this is a slimmed down list
+        // of characters to reduce the groups that are only used with each other
+        // along with one arbitrarily chosen character not used in the regex ('
+        // ')
         const POSSIBLE_BYTES: &[u8] = &[b' ', 0x1b, 0x9b, b'(', b'0', b'[', b';', b'3', b'C'];
 
         fn check_all_strings_of_len(len: usize) {

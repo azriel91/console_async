@@ -1,13 +1,12 @@
-use std::io;
-use std::mem;
-use std::os::windows::io::AsRawHandle;
-use std::str::Bytes;
+use std::{io, mem, os::windows::io::AsRawHandle, str::Bytes};
 
-use windows_sys::Win32::Foundation::HANDLE;
-use windows_sys::Win32::System::Console::{
-    GetConsoleScreenBufferInfo, SetConsoleTextAttribute, CONSOLE_SCREEN_BUFFER_INFO,
-    FOREGROUND_BLUE as FG_BLUE, FOREGROUND_GREEN as FG_GREEN, FOREGROUND_INTENSITY as FG_INTENSITY,
-    FOREGROUND_RED as FG_RED,
+use windows_sys::Win32::{
+    Foundation::HANDLE,
+    System::Console::{
+        GetConsoleScreenBufferInfo, SetConsoleTextAttribute, CONSOLE_SCREEN_BUFFER_INFO,
+        FOREGROUND_BLUE as FG_BLUE, FOREGROUND_GREEN as FG_GREEN,
+        FOREGROUND_INTENSITY as FG_INTENSITY, FOREGROUND_RED as FG_RED,
+    },
 };
 
 use crate::Term;
@@ -115,7 +114,7 @@ impl Console {
         let info = screen_buffer_info(h)?;
         let attr = TextAttributes::from_word(info.attributes());
         Ok(Console {
-            kind: kind,
+            kind,
             start_attr: attr,
             cur_attr: attr,
         })

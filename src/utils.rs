@@ -1,8 +1,9 @@
-use std::borrow::Cow;
-use std::collections::BTreeSet;
-use std::env;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    borrow::Cow,
+    collections::BTreeSet,
+    env, fmt,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use lazy_static::lazy_static;
 
@@ -31,7 +32,8 @@ lazy_static! {
 ///
 /// This honors the [clicolors spec](http://bixense.com/clicolors/).
 ///
-/// * `CLICOLOR != 0`: ANSI colors are supported and should be used when the program isn't piped.
+/// * `CLICOLOR != 0`: ANSI colors are supported and should be used when the
+///   program isn't piped.
 /// * `CLICOLOR == 0`: Don't output ANSI color escape codes.
 /// * `CLICOLOR_FORCE != 0`: ANSI colors should be enabled no matter what.
 #[inline]
@@ -41,8 +43,8 @@ pub fn colors_enabled() -> bool {
 
 /// Forces colorization on or off for stdout.
 ///
-/// This overrides the default for the current process and changes the return value of the
-/// `colors_enabled` function.
+/// This overrides the default for the current process and changes the return
+/// value of the `colors_enabled` function.
 #[inline]
 pub fn set_colors_enabled(val: bool) {
     STDOUT_COLORS.store(val, Ordering::Relaxed)
@@ -52,7 +54,8 @@ pub fn set_colors_enabled(val: bool) {
 ///
 /// This honors the [clicolors spec](http://bixense.com/clicolors/).
 ///
-/// * `CLICOLOR != 0`: ANSI colors are supported and should be used when the program isn't piped.
+/// * `CLICOLOR != 0`: ANSI colors are supported and should be used when the
+///   program isn't piped.
 /// * `CLICOLOR == 0`: Don't output ANSI color escape codes.
 /// * `CLICOLOR_FORCE != 0`: ANSI colors should be enabled no matter what.
 #[inline]
@@ -62,8 +65,8 @@ pub fn colors_enabled_stderr() -> bool {
 
 /// Forces colorization on or off for stderr.
 ///
-/// This overrides the default for the current process and changes the return value of the
-/// `colors_enabled` function.
+/// This overrides the default for the current process and changes the return
+/// value of the `colors_enabled` function.
 #[inline]
 pub fn set_colors_enabled_stderr(val: bool) {
     STDERR_COLORS.store(val, Ordering::Relaxed)
@@ -299,34 +302,42 @@ impl Style {
     pub fn black(self) -> Style {
         self.fg(Color::Black)
     }
+
     #[inline]
     pub fn red(self) -> Style {
         self.fg(Color::Red)
     }
+
     #[inline]
     pub fn green(self) -> Style {
         self.fg(Color::Green)
     }
+
     #[inline]
     pub fn yellow(self) -> Style {
         self.fg(Color::Yellow)
     }
+
     #[inline]
     pub fn blue(self) -> Style {
         self.fg(Color::Blue)
     }
+
     #[inline]
     pub fn magenta(self) -> Style {
         self.fg(Color::Magenta)
     }
+
     #[inline]
     pub fn cyan(self) -> Style {
         self.fg(Color::Cyan)
     }
+
     #[inline]
     pub fn white(self) -> Style {
         self.fg(Color::White)
     }
+
     #[inline]
     pub fn color256(self, color: u8) -> Style {
         self.fg(Color::Color256(color))
@@ -342,34 +353,42 @@ impl Style {
     pub fn on_black(self) -> Style {
         self.bg(Color::Black)
     }
+
     #[inline]
     pub fn on_red(self) -> Style {
         self.bg(Color::Red)
     }
+
     #[inline]
     pub fn on_green(self) -> Style {
         self.bg(Color::Green)
     }
+
     #[inline]
     pub fn on_yellow(self) -> Style {
         self.bg(Color::Yellow)
     }
+
     #[inline]
     pub fn on_blue(self) -> Style {
         self.bg(Color::Blue)
     }
+
     #[inline]
     pub fn on_magenta(self) -> Style {
         self.bg(Color::Magenta)
     }
+
     #[inline]
     pub fn on_cyan(self) -> Style {
         self.bg(Color::Cyan)
     }
+
     #[inline]
     pub fn on_white(self) -> Style {
         self.bg(Color::White)
     }
+
     #[inline]
     pub fn on_color256(self, color: u8) -> Style {
         self.bg(Color::Color256(color))
@@ -385,22 +404,27 @@ impl Style {
     pub fn bold(self) -> Style {
         self.attr(Attribute::Bold)
     }
+
     #[inline]
     pub fn dim(self) -> Style {
         self.attr(Attribute::Dim)
     }
+
     #[inline]
     pub fn italic(self) -> Style {
         self.attr(Attribute::Italic)
     }
+
     #[inline]
     pub fn underlined(self) -> Style {
         self.attr(Attribute::Underlined)
     }
+
     #[inline]
     pub fn blink(self) -> Style {
         self.attr(Attribute::Blink)
     }
+
     #[inline]
     pub fn blink_fast(self) -> Style {
         self.attr(Attribute::BlinkFast)
@@ -409,6 +433,7 @@ impl Style {
     pub fn reverse(self) -> Style {
         self.attr(Attribute::Reverse)
     }
+
     #[inline]
     pub fn hidden(self) -> Style {
         self.attr(Attribute::Hidden)
@@ -497,34 +522,42 @@ impl<D> StyledObject<D> {
     pub fn black(self) -> StyledObject<D> {
         self.fg(Color::Black)
     }
+
     #[inline]
     pub fn red(self) -> StyledObject<D> {
         self.fg(Color::Red)
     }
+
     #[inline]
     pub fn green(self) -> StyledObject<D> {
         self.fg(Color::Green)
     }
+
     #[inline]
     pub fn yellow(self) -> StyledObject<D> {
         self.fg(Color::Yellow)
     }
+
     #[inline]
     pub fn blue(self) -> StyledObject<D> {
         self.fg(Color::Blue)
     }
+
     #[inline]
     pub fn magenta(self) -> StyledObject<D> {
         self.fg(Color::Magenta)
     }
+
     #[inline]
     pub fn cyan(self) -> StyledObject<D> {
         self.fg(Color::Cyan)
     }
+
     #[inline]
     pub fn white(self) -> StyledObject<D> {
         self.fg(Color::White)
     }
+
     #[inline]
     pub fn color256(self, color: u8) -> StyledObject<D> {
         self.fg(Color::Color256(color))
@@ -540,34 +573,42 @@ impl<D> StyledObject<D> {
     pub fn on_black(self) -> StyledObject<D> {
         self.bg(Color::Black)
     }
+
     #[inline]
     pub fn on_red(self) -> StyledObject<D> {
         self.bg(Color::Red)
     }
+
     #[inline]
     pub fn on_green(self) -> StyledObject<D> {
         self.bg(Color::Green)
     }
+
     #[inline]
     pub fn on_yellow(self) -> StyledObject<D> {
         self.bg(Color::Yellow)
     }
+
     #[inline]
     pub fn on_blue(self) -> StyledObject<D> {
         self.bg(Color::Blue)
     }
+
     #[inline]
     pub fn on_magenta(self) -> StyledObject<D> {
         self.bg(Color::Magenta)
     }
+
     #[inline]
     pub fn on_cyan(self) -> StyledObject<D> {
         self.bg(Color::Cyan)
     }
+
     #[inline]
     pub fn on_white(self) -> StyledObject<D> {
         self.bg(Color::White)
     }
+
     #[inline]
     pub fn on_color256(self, color: u8) -> StyledObject<D> {
         self.bg(Color::Color256(color))
@@ -583,22 +624,27 @@ impl<D> StyledObject<D> {
     pub fn bold(self) -> StyledObject<D> {
         self.attr(Attribute::Bold)
     }
+
     #[inline]
     pub fn dim(self) -> StyledObject<D> {
         self.attr(Attribute::Dim)
     }
+
     #[inline]
     pub fn italic(self) -> StyledObject<D> {
         self.attr(Attribute::Italic)
     }
+
     #[inline]
     pub fn underlined(self) -> StyledObject<D> {
         self.attr(Attribute::Underlined)
     }
+
     #[inline]
     pub fn blink(self) -> StyledObject<D> {
         self.attr(Attribute::Blink)
     }
+
     #[inline]
     pub fn blink_fast(self) -> StyledObject<D> {
         self.attr(Attribute::BlinkFast)
@@ -607,6 +653,7 @@ impl<D> StyledObject<D> {
     pub fn reverse(self) -> StyledObject<D> {
         self.attr(Attribute::Reverse)
     }
+
     #[inline]
     pub fn hidden(self) -> StyledObject<D> {
         self.attr(Attribute::Hidden)

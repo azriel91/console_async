@@ -1,15 +1,13 @@
-use std::env;
-use std::fmt::Display;
-use std::fs;
-use std::io;
-use std::io::{BufRead, BufReader};
-use std::mem;
-use std::os::unix::io::AsRawFd;
-use std::ptr;
-use std::str;
+use std::{
+    env,
+    fmt::Display,
+    fs, io,
+    io::{BufRead, BufReader},
+    os::unix::io::AsRawFd,
+    str,
+};
 
-use crate::kb::Key;
-use crate::term::Term;
+use crate::{kb::Key, term::Term};
 
 pub use crate::common_term::*;
 
