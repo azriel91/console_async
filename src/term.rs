@@ -561,6 +561,27 @@ impl Term {
 
     // helpers
 
+    fn poll_write(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        match self.inner.target {
+            TermTarget::Stdout => {
+                let mut stdout = tokio::io::stdout();
+                let stdout = Pin::new(&mut stdout);
+                stdout.poll_write(cx, bytes)
+            }
+            TermTarget::Stderr => {
+                let mut stderr = tokio::io::stderr();
+                let stderr = Pin::new(&mut stderr);
+                stderr.poll_write(cx, bytes)
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_write(cx, bytes)
+            }
+        }
+    }
+
     #[cfg(all(windows, feature = "windows-console-colors"))]
     async fn write_through(&self, bytes: &[u8]) -> io::Result<()> {
         if self.is_msys_tty || !self.is_tty {
@@ -733,7 +754,7 @@ impl AsyncWrite for Term {
             Some(ref buffer) => Poll::Ready(
                 std::io::Write::write_all(&mut *buffer.lock().unwrap(), buf).map(|()| buf.len()),
             ),
-            None => self.poll_write_through(cx, buf),
+            None => Term::poll_write(&self, cx, buf),
         }
     }
 
