@@ -1,13 +1,15 @@
+use std::{borrow::Cow, collections::BTreeSet, fmt};
+#[cfg(not(target_family = "wasm"))]
 use std::{
-    borrow::Cow,
-    collections::BTreeSet,
-    env, fmt,
+    env,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use lazy_static::lazy_static;
 
-use crate::term::{wants_emoji, Term};
+use crate::term::wants_emoji;
+#[cfg(not(target_family = "wasm"))]
+use crate::term::Term;
 
 #[cfg(feature = "ansi-parsing")]
 use crate::ansi::{strip_ansi_codes, AnsiCodeIterator};
@@ -17,12 +19,14 @@ fn strip_ansi_codes(s: &str) -> &str {
     s
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn default_colors_enabled(out: &Term) -> bool {
     (out.features().colors_supported()
         && &env::var("CLICOLOR").unwrap_or_else(|_| "1".into()) != "0")
         || &env::var("CLICOLOR_FORCE").unwrap_or_else(|_| "0".into()) != "0"
 }
 
+#[cfg(not(target_family = "wasm"))]
 lazy_static! {
     static ref STDOUT_COLORS: AtomicBool = AtomicBool::new(default_colors_enabled(&Term::stdout()));
     static ref STDERR_COLORS: AtomicBool = AtomicBool::new(default_colors_enabled(&Term::stderr()));
@@ -38,7 +42,15 @@ lazy_static! {
 /// * `CLICOLOR_FORCE != 0`: ANSI colors should be enabled no matter what.
 #[inline]
 pub fn colors_enabled() -> bool {
-    STDOUT_COLORS.load(Ordering::Relaxed)
+    #[cfg(not(target_family = "wasm"))]
+    {
+        STDOUT_COLORS.load(Ordering::Relaxed)
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+        true
+    }
 }
 
 /// Forces colorization on or off for stdout.
@@ -47,7 +59,11 @@ pub fn colors_enabled() -> bool {
 /// value of the `colors_enabled` function.
 #[inline]
 pub fn set_colors_enabled(val: bool) {
-    STDOUT_COLORS.store(val, Ordering::Relaxed)
+    #[cfg(not(target_family = "wasm"))]
+    STDOUT_COLORS.store(val, Ordering::Relaxed);
+
+    #[cfg(target_family = "wasm")]
+    let _ = val;
 }
 
 /// Returns `true` if colors should be enabled for stderr.
@@ -60,7 +76,15 @@ pub fn set_colors_enabled(val: bool) {
 /// * `CLICOLOR_FORCE != 0`: ANSI colors should be enabled no matter what.
 #[inline]
 pub fn colors_enabled_stderr() -> bool {
-    STDERR_COLORS.load(Ordering::Relaxed)
+    #[cfg(not(target_family = "wasm"))]
+    {
+        STDERR_COLORS.load(Ordering::Relaxed)
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+        true
+    }
 }
 
 /// Forces colorization on or off for stderr.
@@ -69,7 +93,11 @@ pub fn colors_enabled_stderr() -> bool {
 /// value of the `colors_enabled` function.
 #[inline]
 pub fn set_colors_enabled_stderr(val: bool) {
-    STDERR_COLORS.store(val, Ordering::Relaxed)
+    #[cfg(not(target_family = "wasm"))]
+    STDERR_COLORS.store(val, Ordering::Relaxed);
+
+    #[cfg(target_family = "wasm")]
+    let _ = val;
 }
 
 /// Measure the width of a string in terminal characters.
@@ -429,6 +457,7 @@ impl Style {
     pub fn blink_fast(self) -> Style {
         self.attr(Attribute::BlinkFast)
     }
+
     #[inline]
     pub fn reverse(self) -> Style {
         self.attr(Attribute::Reverse)
@@ -438,6 +467,7 @@ impl Style {
     pub fn hidden(self) -> Style {
         self.attr(Attribute::Hidden)
     }
+
     #[inline]
     pub fn strikethrough(self) -> Style {
         self.attr(Attribute::StrikeThrough)
@@ -649,6 +679,7 @@ impl<D> StyledObject<D> {
     pub fn blink_fast(self) -> StyledObject<D> {
         self.attr(Attribute::BlinkFast)
     }
+
     #[inline]
     pub fn reverse(self) -> StyledObject<D> {
         self.attr(Attribute::Reverse)
@@ -658,6 +689,7 @@ impl<D> StyledObject<D> {
     pub fn hidden(self) -> StyledObject<D> {
         self.attr(Attribute::Hidden)
     }
+
     #[inline]
     pub fn strikethrough(self) -> StyledObject<D> {
         self.attr(Attribute::StrikeThrough)
