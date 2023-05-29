@@ -39,7 +39,7 @@ features = [
 # Pick a setup for proptest that works with wasi
 proptest = { version = "1.0.0", default-features = false, features = ["std", "bit-set", "break-dead-code"] }
 regex = "1.4.2"
-tokio = { version = "1.28.2", features = ["io-std", "io-util", "rt"] }
+tokio = { version = "1.28.2", features = ["io-std", "io-util", "macros", "rt", "time"] }
 
 ## These are currently disabled.  If you want to play around with the benchmarks
 ## uncommit this.
