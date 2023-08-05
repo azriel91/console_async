@@ -6,7 +6,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, Stderr, Stdout};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+#[cfg(not(target_family = "wasm"))]
+use tokio::io::{Stderr, Stdout};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -36,11 +38,20 @@ pub struct ReadWritePair {
 
 /// Where the term is writing.
 #[derive(Debug, Clone)]
+#[cfg(not(target_family = "wasm"))]
 pub enum TermTarget {
     Stdout(Arc<Mutex<Stdout>>),
     Stderr(Arc<Mutex<Stderr>>),
     #[cfg(unix)]
     ReadWritePair(ReadWritePair),
+}
+
+/// Where the term is writing.
+#[derive(Debug, Clone)]
+#[cfg(target_family = "wasm")]
+pub enum TermTarget {
+    Stdout,
+    Stderr,
 }
 
 #[derive(Debug)]
@@ -153,7 +164,10 @@ impl Term {
     #[inline]
     pub fn stdout() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
+            #[cfg(target_arch = "wasm32")]
+            target: TermTarget::Stdout,
             buffer: None,
         })
     }
@@ -162,7 +176,10 @@ impl Term {
     #[inline]
     pub fn stderr() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
+            #[cfg(target_arch = "wasm32")]
+            target: TermTarget::Stderr,
             buffer: None,
         })
     }
@@ -170,7 +187,10 @@ impl Term {
     /// Return a new buffered terminal.
     pub fn buffered_stdout() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
+            #[cfg(target_arch = "wasm32")]
+            target: TermTarget::Stdout,
             buffer: Some(Mutex::new(vec![])),
         })
     }
@@ -178,7 +198,10 @@ impl Term {
     /// Return a new buffered terminal to stderr.
     pub fn buffered_stderr() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
+            #[cfg(target_arch = "wasm32")]
+            target: TermTarget::Stderr,
             buffer: Some(Mutex::new(vec![])),
         })
     }
@@ -213,11 +236,18 @@ impl Term {
     /// Return the style for this terminal.
     #[inline]
     pub fn style(&self) -> Style {
+        #[cfg(not(target_family = "wasm"))]
         match self.inner.target {
             TermTarget::Stderr(..) => Style::new().for_stderr(),
             TermTarget::Stdout(..) => Style::new().for_stdout(),
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref style, .. }) => style.clone(),
+        }
+
+        #[cfg(target_family = "wasm")]
+        match self.inner.target {
+            TermTarget::Stderr => Style::new().for_stderr(),
+            TermTarget::Stdout => Style::new().for_stdout(),
         }
     }
 
@@ -367,6 +397,8 @@ impl Term {
                 buffer.clear();
             }
         }
+
+        #[cfg(not(target_family = "wasm"))]
         match &self.inner.target {
             TermTarget::Stdout(stdout) => stdout.lock().unwrap().flush().await?,
             TermTarget::Stderr(stderr) => stderr.lock().unwrap().flush().await?,
@@ -376,6 +408,7 @@ impl Term {
                 write.flush().await?
             }
         }
+
         Ok(())
     }
 
@@ -393,6 +426,7 @@ impl Term {
             }
         }
 
+        #[cfg(not(target_family = "wasm"))]
         match &self.inner.target {
             TermTarget::Stdout(stdout) => {
                 let mut stdout = stdout.lock().unwrap();
@@ -411,32 +445,41 @@ impl Term {
                 write.poll_flush(cx)
             }
         }
+
+        #[cfg(target_family = "wasm")]
+        Poll::Ready(Ok(()))
     }
 
     /// Polls for this to be shutdown.
     pub fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut poll = self.as_mut().poll_flush(cx);
-        if poll.is_ready() {
-            poll = match &self.inner.target {
-                TermTarget::Stdout(stdout) => {
-                    let mut stdout = stdout.lock().unwrap();
-                    let stdout = Pin::new(&mut *stdout);
-                    stdout.poll_shutdown(cx)
-                }
-                TermTarget::Stderr(stderr) => {
-                    let mut stderr = stderr.lock().unwrap();
-                    let stderr = Pin::new(&mut *stderr);
-                    stderr.poll_shutdown(cx)
-                }
-                #[cfg(unix)]
-                TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
-                    let mut write = write.lock().unwrap();
-                    let write = Pin::new(&mut *write);
-                    write.poll_shutdown(cx)
-                }
-            };
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut poll = self.as_mut().poll_flush(cx);
+            if poll.is_ready() {
+                poll = match &self.inner.target {
+                    TermTarget::Stdout(stdout) => {
+                        let mut stdout = stdout.lock().unwrap();
+                        let stdout = Pin::new(&mut *stdout);
+                        stdout.poll_shutdown(cx)
+                    }
+                    TermTarget::Stderr(stderr) => {
+                        let mut stderr = stderr.lock().unwrap();
+                        let stderr = Pin::new(&mut *stderr);
+                        stderr.poll_shutdown(cx)
+                    }
+                    #[cfg(unix)]
+                    TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                        let mut write = write.lock().unwrap();
+                        let write = Pin::new(&mut *write);
+                        write.poll_shutdown(cx)
+                    }
+                };
+            }
+            poll
         }
-        poll
+
+        #[cfg(target_family = "wasm")]
+        Poll::Ready(Ok(()))
     }
 
     /// Check if the terminal is indeed a terminal.
@@ -588,6 +631,7 @@ impl Term {
     // helpers
 
     fn poll_write(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        #[cfg(not(target_arch = "wasm32"))]
         match &self.inner.target {
             TermTarget::Stdout(stdout) => {
                 let mut stdout = stdout.lock().unwrap();
@@ -604,6 +648,18 @@ impl Term {
                 let mut write = write.lock().unwrap();
                 let write = Pin::new(&mut *write);
                 write.poll_write(cx, bytes)
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        match &self.inner.target {
+            TermTarget::Stdout => {
+                // TODO: console.log
+                Poll::Ready(Ok(bytes.len()))
+            }
+            TermTarget::Stderr => {
+                // TODO: console.log
+                Poll::Ready(Ok(bytes.len()))
             }
         }
     }
@@ -667,6 +723,7 @@ impl Term {
 
     #[cfg(not(all(windows, feature = "windows-console-colors")))]
     pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
         match &self.inner.target {
             TermTarget::Stdout(stdout) => {
                 stdout.lock().unwrap().write_all(bytes).await?;
@@ -680,6 +737,17 @@ impl Term {
                 write.write_all(bytes).await?;
             }
         }
+
+        #[cfg(target_arch = "wasm32")]
+        match &self.inner.target {
+            TermTarget::Stdout => {
+                // TODO: console.log
+            }
+            TermTarget::Stderr => {
+                // TODO: console.log
+            }
+        }
+
         Ok(())
     }
 
@@ -688,6 +756,7 @@ impl Term {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
+        #[cfg(not(target_arch = "wasm32"))]
         match &self.inner.target {
             TermTarget::Stdout(stdout) => {
                 let mut stdout = stdout.lock().unwrap();
@@ -737,6 +806,18 @@ impl Term {
                 };
 
                 poll
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        match &self.inner.target {
+            TermTarget::Stdout => {
+                // TODO: console.log
+                Poll::Ready(Ok(bytes.len()))
+            }
+            TermTarget::Stderr => {
+                // TODO: console.log
+                Poll::Ready(Ok(bytes.len()))
             }
         }
     }
@@ -820,9 +901,15 @@ impl AsyncRead for Term {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut stdin = tokio::io::stdin();
-        let stdin = Pin::new(&mut stdin);
-        stdin.poll_read(cx, buf)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut stdin = tokio::io::stdin();
+            let stdin = Pin::new(&mut stdin);
+            stdin.poll_read(cx, buf)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -832,9 +919,15 @@ impl<'a> AsyncRead for &'a Term {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut stdin = tokio::io::stdin();
-        let stdin = Pin::new(&mut stdin);
-        stdin.poll_read(cx, buf)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut stdin = tokio::io::stdin();
+            let stdin = Pin::new(&mut stdin);
+            stdin.poll_read(cx, buf)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        Poll::Ready(Ok(()))
     }
 }
 
