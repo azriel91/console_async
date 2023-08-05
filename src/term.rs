@@ -451,34 +451,34 @@ impl Term {
     }
 
     /// Polls for this to be shutdown.
+    #[cfg(not(target_family = "wasm"))]
     pub fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let mut poll = self.as_mut().poll_flush(cx);
-            if poll.is_ready() {
-                poll = match &self.inner.target {
-                    TermTarget::Stdout(stdout) => {
-                        let mut stdout = stdout.lock().unwrap();
-                        let stdout = Pin::new(&mut *stdout);
-                        stdout.poll_shutdown(cx)
-                    }
-                    TermTarget::Stderr(stderr) => {
-                        let mut stderr = stderr.lock().unwrap();
-                        let stderr = Pin::new(&mut *stderr);
-                        stderr.poll_shutdown(cx)
-                    }
-                    #[cfg(unix)]
-                    TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
-                        let mut write = write.lock().unwrap();
-                        let write = Pin::new(&mut *write);
-                        write.poll_shutdown(cx)
-                    }
-                };
-            }
-            poll
+        let mut poll = self.as_mut().poll_flush(cx);
+        if poll.is_ready() {
+            poll = match &self.inner.target {
+                TermTarget::Stdout(stdout) => {
+                    let mut stdout = stdout.lock().unwrap();
+                    let stdout = Pin::new(&mut *stdout);
+                    stdout.poll_shutdown(cx)
+                }
+                TermTarget::Stderr(stderr) => {
+                    let mut stderr = stderr.lock().unwrap();
+                    let stderr = Pin::new(&mut *stderr);
+                    stderr.poll_shutdown(cx)
+                }
+                #[cfg(unix)]
+                TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                    let mut write = write.lock().unwrap();
+                    let write = Pin::new(&mut *write);
+                    write.poll_shutdown(cx)
+                }
+            };
         }
+        poll
+    }
 
-        #[cfg(target_family = "wasm")]
+    #[cfg(target_family = "wasm")]
+    pub fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
@@ -652,14 +652,17 @@ impl Term {
         }
 
         #[cfg(target_arch = "wasm32")]
-        match &self.inner.target {
-            TermTarget::Stdout => {
-                // TODO: console.log
-                Poll::Ready(Ok(bytes.len()))
-            }
-            TermTarget::Stderr => {
-                // TODO: console.log
-                Poll::Ready(Ok(bytes.len()))
+        {
+            let _cx = cx;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
             }
         }
     }
@@ -739,12 +742,15 @@ impl Term {
         }
 
         #[cfg(target_arch = "wasm32")]
-        match &self.inner.target {
-            TermTarget::Stdout => {
-                // TODO: console.log
-            }
-            TermTarget::Stderr => {
-                // TODO: console.log
+        {
+            let _bytes = bytes;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                }
             }
         }
 
@@ -810,14 +816,17 @@ impl Term {
         }
 
         #[cfg(target_arch = "wasm32")]
-        match &self.inner.target {
-            TermTarget::Stdout => {
-                // TODO: console.log
-                Poll::Ready(Ok(bytes.len()))
-            }
-            TermTarget::Stderr => {
-                // TODO: console.log
-                Poll::Ready(Ok(bytes.len()))
+        {
+            let _cx = cx;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
             }
         }
     }
@@ -909,7 +918,11 @@ impl AsyncRead for Term {
         }
 
         #[cfg(target_arch = "wasm32")]
-        Poll::Ready(Ok(()))
+        {
+            let _cx = cx;
+            let _buf = buf;
+            Poll::Ready(Ok(()))
+        }
     }
 }
 
@@ -927,7 +940,11 @@ impl<'a> AsyncRead for &'a Term {
         }
 
         #[cfg(target_arch = "wasm32")]
-        Poll::Ready(Ok(()))
+        {
+            let _cx = cx;
+            let _buf = buf;
+            Poll::Ready(Ok(()))
+        }
     }
 }
 

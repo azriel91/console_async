@@ -5,6 +5,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+#[cfg(not(target_family = "wasm"))]
 use lazy_static::lazy_static;
 
 use crate::term::wants_emoji;
