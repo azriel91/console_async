@@ -13,15 +13,9 @@ use std::{
     slice,
 };
 
-use encode_unicode::{error::InvalidUtf16Tuple, CharExt};
+use encode_unicode::{error::Utf16TupleError, CharExt};
 use windows_sys::Win32::{
     Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
-    Storage::FileSystem::{FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO},
-};
-
-use encode_unicode::{error::InvalidUtf16Tuple, CharExt};
-use windows_sys::Win32::{
-    Foundation::{CHAR, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
     Storage::FileSystem::{FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO},
     System::Console::{
         FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleCursorInfo,
@@ -57,8 +51,8 @@ pub fn as_handle(term: &Term) -> HANDLE {
 
 pub fn is_a_terminal(out: &Term) -> bool {
     let (fd, others) = match out.target() {
-        TermTarget::Stdout => (STD_OUTPUT_HANDLE, [STD_INPUT_HANDLE, STD_ERROR_HANDLE]),
-        TermTarget::Stderr => (STD_ERROR_HANDLE, [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE]),
+        TermTarget::Stdout(..) => (STD_OUTPUT_HANDLE, [STD_INPUT_HANDLE, STD_ERROR_HANDLE]),
+        TermTarget::Stderr(..) => (STD_ERROR_HANDLE, [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE]),
     };
 
     if unsafe { console_on_any(&[fd]) } {
@@ -155,9 +149,9 @@ pub fn terminal_size(out: &Term) -> Option<(u16, u16)> {
     Some((rows, columns))
 }
 
-pub fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
+pub async fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_to(out, x, y);
+        return common_term::move_cursor_to(out, x, y).await;
     }
     if let Some((hand, _)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -173,31 +167,31 @@ pub fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
     Ok(())
 }
 
-pub fn move_cursor_up(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_up(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_up(out, n);
+        return common_term::move_cursor_up(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
-        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize - n)?;
+        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize - n).await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_down(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_down(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_down(out, n);
+        return common_term::move_cursor_down(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
-        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize + n)?;
+        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize + n).await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_left(out, n);
+        return common_term::move_cursor_left(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
@@ -205,14 +199,15 @@ pub fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
             out,
             csbi.dwCursorPosition.X as usize - n,
             csbi.dwCursorPosition.Y as usize,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_right(out, n);
+        return common_term::move_cursor_right(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
@@ -220,14 +215,15 @@ pub fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
             out,
             csbi.dwCursorPosition.X as usize + n,
             csbi.dwCursorPosition.Y as usize,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub fn clear_line(out: &Term) -> io::Result<()> {
+pub async fn clear_line(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_line(out);
+        return common_term::clear_line(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -245,9 +241,9 @@ pub fn clear_line(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
+pub async fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_chars(out, n);
+        return common_term::clear_chars(out, n).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -265,9 +261,9 @@ pub fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_screen(out: &Term) -> io::Result<()> {
+pub async fn clear_screen(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_screen(out);
+        return common_term::clear_screen(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -282,9 +278,9 @@ pub fn clear_screen(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
+pub async fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_to_end_of_screen(out);
+        return common_term::clear_to_end_of_screen(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -303,9 +299,9 @@ pub fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn show_cursor(out: &Term) -> io::Result<()> {
+pub async fn show_cursor(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::show_cursor(out);
+        return common_term::show_cursor(out).await;
     }
     if let Some((hand, mut cci)) = get_console_cursor_info(as_handle(out)) {
         unsafe {
@@ -316,9 +312,9 @@ pub fn show_cursor(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn hide_cursor(out: &Term) -> io::Result<()> {
+pub async fn hide_cursor(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::hide_cursor(out);
+        return common_term::hide_cursor(out).await;
     }
     if let Some((hand, mut cci)) = get_console_cursor_info(as_handle(out)) {
         unsafe {
@@ -412,13 +408,13 @@ pub fn read_single_key() -> io::Result<Key> {
                 }
             }
             // This is part of a surrogate pair. Try to read the second half.
-            Err(InvalidUtf16Tuple::MissingSecond) => {
+            Err(Utf16TupleError::MissingSecond) => {
                 // Confirm that there is a next character to read.
                 if get_key_event_count()? == 0 {
                     let message = format!(
                         "Read invlid utf16 {}: {}",
                         unicode_char,
-                        InvalidUtf16Tuple::MissingSecond
+                        Utf16TupleError::MissingSecond
                     );
                     return Err(io::Error::new(io::ErrorKind::InvalidData, message));
                 }
