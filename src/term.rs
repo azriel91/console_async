@@ -6,9 +6,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 #[cfg(not(target_family = "wasm"))]
-use tokio::io::{Stderr, Stdout};
+use tokio::io::{AsyncBufReadExt, BufReader, Stderr, Stdin, Stdout};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -56,6 +56,8 @@ pub enum TermTarget {
 
 #[derive(Debug)]
 pub struct TermInner {
+    #[cfg(not(target_family = "wasm"))]
+    stdin: Mutex<BufReader<Stdin>>,
     target: TermTarget,
     buffer: Option<Mutex<Vec<u8>>>,
 }
@@ -165,6 +167,8 @@ impl Term {
     pub fn stdout() -> Term {
         Term::with_inner(TermInner {
             #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
             #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stdout,
@@ -177,6 +181,8 @@ impl Term {
     pub fn stderr() -> Term {
         Term::with_inner(TermInner {
             #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
             #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stderr,
@@ -188,6 +194,8 @@ impl Term {
     pub fn buffered_stdout() -> Term {
         Term::with_inner(TermInner {
             #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
             #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stdout,
@@ -198,6 +206,8 @@ impl Term {
     /// Return a new buffered terminal to stderr.
     pub fn buffered_stderr() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
             #[cfg(not(target_arch = "wasm32"))]
             target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
             #[cfg(target_arch = "wasm32")]
@@ -224,6 +234,8 @@ impl Term {
         W: AsyncWrite + Debug + AsRawFd + Unpin + Send + 'static,
     {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
             target: TermTarget::ReadWritePair(ReadWritePair {
                 read: Arc::new(Mutex::new(read)),
                 write: Arc::new(Mutex::new(write)),
@@ -321,14 +333,20 @@ impl Term {
     /// This does not include the trailing newline.  If the terminal is not
     /// user attended the return value will always be an empty string.
     pub async fn read_line(&self) -> io::Result<String> {
-        if !self.is_tty {
-            return Ok("".into());
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if !self.is_tty {
+                return Ok("".into());
+            }
+            let mut rv = String::new();
+            self.inner.stdin.lock().unwrap().read_line(&mut rv).await?;
+            let len = rv.trim_end_matches(&['\r', '\n'][..]).len();
+            rv.truncate(len);
+            Ok(rv)
         }
-        let mut rv = String::new();
-        io::stdin().read_line(&mut rv)?;
-        let len = rv.trim_end_matches(&['\r', '\n'][..]).len();
-        rv.truncate(len);
-        Ok(rv)
+
+        #[cfg(target_family = "wasm")]
+        Ok("".into())
     }
 
     /// Read one line of input with initial text.
@@ -912,8 +930,8 @@ impl AsyncRead for Term {
     ) -> Poll<io::Result<()>> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut stdin = tokio::io::stdin();
-            let stdin = Pin::new(&mut stdin);
+            let mut stdin = self.inner.stdin.lock().unwrap();
+            let stdin = Pin::new(&mut *stdin);
             stdin.poll_read(cx, buf)
         }
 
@@ -934,8 +952,8 @@ impl<'a> AsyncRead for &'a Term {
     ) -> Poll<io::Result<()>> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut stdin = tokio::io::stdin();
-            let stdin = Pin::new(&mut stdin);
+            let mut stdin = self.inner.stdin.lock().unwrap();
+            let stdin = Pin::new(&mut *stdin);
             stdin.poll_read(cx, buf)
         }
 
