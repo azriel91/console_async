@@ -21,19 +21,19 @@ windows-console-colors = ["ansi-parsing"]
 ansi-parsing = []
 
 [dependencies]
-libc = "0.2.99"
+libc = "0.2.147"
 unicode-width = { version = "0.1", optional = true }
 lazy_static = "1.4.0"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio = { version = "1.28.2", features = ["io-std", "io-util"] }
+tokio = { version = "1.29.1", features = ["io-std", "io-util"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio = { version = "1.28.2", features = ["io-util"] }
+tokio = { version = "1.29.1", features = ["io-util"] }
 wasm-bindgen = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-encode_unicode = "0.3"
+encode_unicode = "1.0"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.48.0"
@@ -46,9 +46,9 @@ features = [
 
 [dev-dependencies]
 # Pick a setup for proptest that works with wasi
-proptest = { version = "1.0.0", default-features = false, features = ["std", "bit-set", "break-dead-code"] }
-regex = "1.4.2"
-tokio = { version = "1.28.2", features = ["io-util", "macros", "rt", "time"] }
+proptest = { version = "1.1.0", default-features = false, features = ["std", "bit-set", "break-dead-code"] }
+regex = "1.7.3"
+tokio = { version = "1.29.1", features = ["io-util", "macros", "rt", "time"] }
 
 ## These are currently disabled.  If you want to play around with the benchmarks
 ## uncommit this.
