@@ -46,7 +46,7 @@ features = [
 
 [dev-dependencies]
 # Pick a setup for proptest that works with wasi
-proptest = { version = "1.1.0", default-features = false, features = ["std", "bit-set", "break-dead-code"] }
+proptest = { version = "1.0.0", default-features = false, features = ["std", "bit-set", "break-dead-code"] }
 regex = "1.7.3"
 tokio = { version = "1.29.1", features = ["io-util", "macros", "rt", "time"] }
 
