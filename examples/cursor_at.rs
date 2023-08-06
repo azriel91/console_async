@@ -1,8 +1,6 @@
-extern crate console;
-
 use std::{io, time::Duration};
 
-use console::{style, Term};
+use console_async::{style, Term};
 
 async fn write_chars() -> io::Result<()> {
     let term = Term::stdout();

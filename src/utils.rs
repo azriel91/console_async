@@ -480,7 +480,7 @@ impl Style {
 /// Example:
 ///
 /// ```rust,no_run
-/// # use console::style;
+/// # use console_async::style;
 /// format!("Hello {}", style("World").cyan());
 /// ```
 ///
@@ -488,7 +488,7 @@ impl Style {
 /// to a value:
 ///
 /// ```rust,no_run
-/// # use console::Style;
+/// # use console_async::Style;
 /// format!("Hello {}", Style::new().cyan().apply_to("World"));
 /// ```
 pub fn style<D>(val: D) -> StyledObject<D> {
@@ -763,7 +763,7 @@ impl_fmt!(UpperHex);
 /// Example:
 ///
 /// ```rust
-/// use console::Emoji;
+/// use console_async::Emoji;
 /// println!("[3/4] {}Downloading ...", Emoji("🚚 ", ""));
 /// println!("[4/4] {} Done!", Emoji("✨", ":-)"));
 /// ```

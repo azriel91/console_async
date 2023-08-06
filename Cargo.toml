@@ -1,5 +1,5 @@
 [package]
-name = "console"
+name = "console_async"
 description = "A terminal and console abstraction for Rust"
 version = "0.15.7"
 keywords = ["cli", "terminal", "colors", "console", "ansi"]

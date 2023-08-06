@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
 
-use console::{style, Term};
+use console_async::{style, Term};
 
 async fn do_stuff() -> std::io::Result<()> {
     let term = Term::stdout();

@@ -10,18 +10,18 @@
 //!
 //! # Terminal Access
 //!
-//! The terminal is abstracted through the `console::Term` type.  It can
+//! The terminal is abstracted through the `console_async::Term` type.  It can
 //! either directly provide access to the connected terminal or by buffering
 //! up commands.  A buffered terminal will however not be completely buffered
 //! on windows where cursor movements are currently directly passed through.
 //!
 //! Example usage:
 //!
-//! ```
+//! ```rust
 //! # async fn test() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::time::Duration;
 //!
-//! use console::Term;
+//! use console_async::Term;
 //!
 //! let term = Term::stdout();
 //! term.write_line("Hello World!").await?;
@@ -37,14 +37,14 @@
 //!
 //! # Colors and Styles
 //!
-//! `console` automaticaly detects when to use colors based on the tty flag.  It
-//! also provides higher level wrappers for styling text and other things that
-//! can be displayed with the `style` function and utility types.
+//! `console_async` automaticaly detects when to use colors based on the tty
+//! flag.  It also provides higher level wrappers for styling text and other
+//! things that can be displayed with the `style` function and utility types.
 //!
 //! Example usage:
 //!
-//! ```
-//! use console::style;
+//! ```rust
+//! use console_async::style;
 //!
 //! println!("This is {} neat", style("quite").cyan());
 //! ```
@@ -52,7 +52,7 @@
 //! You can also store styles and apply them to text later:
 //!
 //! ```
-//! use console::Style;
+//! use console_async::Style;
 //!
 //! let cyan = Style::new().cyan();
 //! println!("This is {} neat", cyan.apply_to("quite"));
