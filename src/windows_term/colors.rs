@@ -1,4 +1,9 @@
-use std::{io, mem, os::windows::io::AsRawHandle, str::Bytes};
+use std::{
+    io, mem,
+    os::windows::io::AsRawHandle,
+    str::Bytes,
+    task::{Context, Poll},
+};
 
 use windows_sys::Win32::{
     Foundation::HANDLE,
@@ -286,7 +291,7 @@ impl Color {
     }
 }
 
-pub fn console_colors(out: &Term, mut con: Console, bytes: &[u8]) -> io::Result<()> {
+pub async fn console_colors(out: &Term, mut con: Console, bytes: &[u8]) -> io::Result<()> {
     use crate::ansi::AnsiCodeIterator;
     use std::str::from_utf8;
 
@@ -296,7 +301,7 @@ pub fn console_colors(out: &Term, mut con: Console, bytes: &[u8]) -> io::Result<
     while !iter.rest_slice().is_empty() {
         if let Some((part, is_esc)) = iter.next() {
             if !is_esc {
-                out.write_through_common(part.as_bytes())?;
+                out.write_through_common(part.as_bytes()).await?;
             } else if part == "\x1b[0m" {
                 con.reset()?;
             } else if let Some((intense, color, fg_bg)) = driver(parse_color, part) {
@@ -305,12 +310,44 @@ pub fn console_colors(out: &Term, mut con: Console, bytes: &[u8]) -> io::Result<
                     FgBg::Background => con.bg(intense, color),
                 }?;
             } else if driver(parse_attr, part).is_none() {
-                out.write_through_common(part.as_bytes())?;
+                out.write_through_common(part.as_bytes()).await?;
             }
         }
     }
 
     Ok(())
+}
+
+pub fn console_colors_poll(
+    out: &Term,
+    cx: &mut Context<'_>,
+    mut con: Console,
+    bytes: &[u8],
+) -> Poll<io::Result<usize>> {
+    use crate::ansi::AnsiCodeIterator;
+    use std::str::from_utf8;
+
+    let s = from_utf8(bytes).expect("data to be printed is not an ansi string");
+    let mut iter = AnsiCodeIterator::new(s);
+
+    while !iter.rest_slice().is_empty() {
+        if let Some((part, is_esc)) = iter.next() {
+            if !is_esc {
+                out.poll_write_through_common(cx, part.as_bytes())?;
+            } else if part == "\x1b[0m" {
+                con.reset()?;
+            } else if let Some((intense, color, fg_bg)) = driver(parse_color, part) {
+                match fg_bg {
+                    FgBg::Foreground => con.fg(intense, color),
+                    FgBg::Background => con.bg(intense, color),
+                }?;
+            } else if driver(parse_attr, part).is_none() {
+                out.poll_write_through_common(cx, part.as_bytes())?;
+            }
+        }
+    }
+
+    Poll::Ready(Ok(bytes.len()))
 }
 
 #[derive(Debug, PartialEq, Eq)]

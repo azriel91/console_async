@@ -249,7 +249,7 @@ impl Term {
     #[inline]
     pub fn style(&self) -> Style {
         #[cfg(not(target_family = "wasm"))]
-        match self.inner.target {
+        match &self.inner.target {
             TermTarget::Stderr(..) => Style::new().for_stderr(),
             TermTarget::Stdout(..) => Style::new().for_stdout(),
             #[cfg(unix)]
@@ -690,9 +690,13 @@ impl Term {
         if self.is_msys_tty || !self.is_tty {
             self.write_through_common(bytes).await
         } else {
-            match self.inner.target {
-                TermTarget::Stdout(_stdout) => console_colors(self, Console::stdout()?, bytes),
-                TermTarget::Stderr(_stderr) => console_colors(self, Console::stderr()?, bytes),
+            match &self.inner.target {
+                TermTarget::Stdout(_stdout) => {
+                    console_colors(self, Console::stdout()?, bytes).await
+                }
+                TermTarget::Stderr(_stderr) => {
+                    console_colors(self, Console::stderr()?, bytes).await
+                }
             }
         }
     }
@@ -702,9 +706,13 @@ impl Term {
         if self.is_msys_tty || !self.is_tty {
             self.poll_write_through_common(cx, bytes)
         } else {
-            match self.inner.target {
-                TermTarget::Stdout(_stdout) => console_colors(self, Console::stdout()?, bytes),
-                TermTarget::Stderr(_stderr) => console_colors(self, Console::stderr()?, bytes),
+            match &self.inner.target {
+                TermTarget::Stdout(_stdout) => {
+                    console_colors_poll(self, cx, Console::stdout()?, bytes)
+                }
+                TermTarget::Stderr(_stderr) => {
+                    console_colors_poll(self, cx, Console::stderr()?, bytes)
+                }
             }
         }
     }
@@ -721,7 +729,7 @@ impl Term {
 
     #[cfg(all(windows, feature = "windows-console-colors"))]
     pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
-        match self.inner.target {
+        match &self.inner.target {
             TermTarget::Stdout(stdout) => {
                 let mut stdout = stdout.lock().unwrap();
                 stdout.write_all(bytes).await?;
@@ -891,7 +899,7 @@ impl AsRawHandle for Term {
         };
 
         unsafe {
-            GetStdHandle(match self.inner.target {
+            GetStdHandle(match &self.inner.target {
                 TermTarget::Stdout(_stdout) => STD_OUTPUT_HANDLE,
                 TermTarget::Stderr(_stderr) => STD_ERROR_HANDLE,
             }) as RawHandle
