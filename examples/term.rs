@@ -22,7 +22,8 @@ async fn do_stuff() -> std::io::Result<()> {
 
     term.write_str("To edit: ").await?;
     let res = term.read_line_initial_text("default").await?;
-    term.write_line(format!("\n{res}").as_str()).await?;
+    term.write_line(format!("\n{res}", res = res).as_str())
+        .await?;
 
     Ok(())
 }
