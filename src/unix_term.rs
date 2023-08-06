@@ -117,6 +117,9 @@ fn poll_fd(fd: i32, timeout: i32) -> io::Result<bool> {
 }
 
 #[cfg(target_os = "macos")]
+use std::{mem, ptr};
+
+#[cfg(target_os = "macos")]
 fn select_fd(fd: i32, timeout: i32) -> io::Result<bool> {
     unsafe {
         let mut read_fd_set: libc::fd_set = mem::zeroed();
