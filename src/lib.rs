@@ -18,23 +18,28 @@
 //! Example usage:
 //!
 //! ```
-//! # fn test() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::{thread, time::Duration};
+//! # async fn test() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::time::Duration;
 //!
 //! use console::Term;
 //!
 //! let term = Term::stdout();
-//! term.write_line("Hello World!")?;
-//! thread::sleep(Duration::from_millis(2000));
-//! term.clear_line()?;
-//! # Ok(()) } test().unwrap();
+//! term.write_line("Hello World!").await?;
+//! tokio::time::sleep(Duration::from_millis(2000));
+//! term.clear_line().await?;
+//! # Ok(()) }
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() {
+//!     test().await.unwrap();
+//! }
 //! ```
 //!
 //! # Colors and Styles
 //!
-//! `console` automaticaly detects when to use colors based on the tty flag.  It also
-//! provides higher level wrappers for styling text and other things that can be
-//! displayed with the `style` function and utility types.
+//! `console` automaticaly detects when to use colors based on the tty flag.  It
+//! also provides higher level wrappers for styling text and other things that
+//! can be displayed with the `style` function and utility types.
 //!
 //! Example usage:
 //!
