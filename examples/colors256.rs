@@ -1,4 +1,4 @@
-use console::style;
+use console_async::style;
 
 fn main() {
     for i in 0..=255 {

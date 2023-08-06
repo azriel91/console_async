@@ -1,6 +1,14 @@
-use std::fmt::{Debug, Display};
-use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::{Debug, Display},
+    io,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+};
+
+#[cfg(not(target_family = "wasm"))]
+use tokio::io::{AsyncBufReadExt, BufReader, Stderr, Stdin, Stdout};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -10,14 +18,14 @@ use std::os::windows::io::{AsRawHandle, RawHandle};
 use crate::{kb::Key, utils::Style};
 
 #[cfg(unix)]
-trait TermWrite: Write + Debug + AsRawFd + Send {}
+trait TermWrite: AsyncWrite + Debug + AsRawFd + Unpin + Send {}
 #[cfg(unix)]
-impl<T: Write + Debug + AsRawFd + Send> TermWrite for T {}
+impl<T: AsyncWrite + Debug + AsRawFd + Unpin + Send> TermWrite for T {}
 
 #[cfg(unix)]
-trait TermRead: Read + Debug + AsRawFd + Send {}
+trait TermRead: AsyncRead + Debug + AsRawFd + Unpin + Send {}
 #[cfg(unix)]
-impl<T: Read + Debug + AsRawFd + Send> TermRead for T {}
+impl<T: AsyncRead + Debug + AsRawFd + Unpin + Send> TermRead for T {}
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]
@@ -30,15 +38,26 @@ pub struct ReadWritePair {
 
 /// Where the term is writing.
 #[derive(Debug, Clone)]
+#[cfg(not(target_family = "wasm"))]
 pub enum TermTarget {
-    Stdout,
-    Stderr,
+    Stdout(Arc<Mutex<Stdout>>),
+    Stderr(Arc<Mutex<Stderr>>),
     #[cfg(unix)]
     ReadWritePair(ReadWritePair),
 }
 
+/// Where the term is writing.
+#[derive(Debug, Clone)]
+#[cfg(target_family = "wasm")]
+pub enum TermTarget {
+    Stdout,
+    Stderr,
+}
+
 #[derive(Debug)]
 pub struct TermInner {
+    #[cfg(not(target_family = "wasm"))]
+    stdin: Mutex<BufReader<Stdin>>,
     target: TermTarget,
     buffer: Option<Mutex<Vec<u8>>>,
 }
@@ -147,6 +166,11 @@ impl Term {
     #[inline]
     pub fn stdout() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
+            target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
+            #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stdout,
             buffer: None,
         })
@@ -156,6 +180,11 @@ impl Term {
     #[inline]
     pub fn stderr() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
+            target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
+            #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stderr,
             buffer: None,
         })
@@ -164,6 +193,11 @@ impl Term {
     /// Return a new buffered terminal.
     pub fn buffered_stdout() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
+            target: TermTarget::Stdout(Arc::new(Mutex::new(tokio::io::stdout()))),
+            #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stdout,
             buffer: Some(Mutex::new(vec![])),
         })
@@ -172,6 +206,11 @@ impl Term {
     /// Return a new buffered terminal to stderr.
     pub fn buffered_stderr() -> Term {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
+            #[cfg(not(target_arch = "wasm32"))]
+            target: TermTarget::Stderr(Arc::new(Mutex::new(tokio::io::stderr()))),
+            #[cfg(target_arch = "wasm32")]
             target: TermTarget::Stderr,
             buffer: Some(Mutex::new(vec![])),
         })
@@ -181,8 +220,8 @@ impl Term {
     #[cfg(unix)]
     pub fn read_write_pair<R, W>(read: R, write: W) -> Term
     where
-        R: Read + Debug + AsRawFd + Send + 'static,
-        W: Write + Debug + AsRawFd + Send + 'static,
+        R: AsyncRead + Debug + AsRawFd + Unpin + Send + 'static,
+        W: AsyncWrite + Debug + AsRawFd + Unpin + Send + 'static,
     {
         Self::read_write_pair_with_style(read, write, Style::new().for_stderr())
     }
@@ -191,10 +230,12 @@ impl Term {
     #[cfg(unix)]
     pub fn read_write_pair_with_style<R, W>(read: R, write: W, style: Style) -> Term
     where
-        R: Read + Debug + AsRawFd + Send + 'static,
-        W: Write + Debug + AsRawFd + Send + 'static,
+        R: AsyncRead + Debug + AsRawFd + Unpin + Send + 'static,
+        W: AsyncWrite + Debug + AsRawFd + Unpin + Send + 'static,
     {
         Term::with_inner(TermInner {
+            #[cfg(not(target_arch = "wasm32"))]
+            stdin: Mutex::new(BufReader::new(tokio::io::stdin())),
             target: TermTarget::ReadWritePair(ReadWritePair {
                 read: Arc::new(Mutex::new(read)),
                 write: Arc::new(Mutex::new(write)),
@@ -207,11 +248,18 @@ impl Term {
     /// Return the style for this terminal.
     #[inline]
     pub fn style(&self) -> Style {
+        #[cfg(not(target_family = "wasm"))]
+        match &self.inner.target {
+            TermTarget::Stderr(..) => Style::new().for_stderr(),
+            TermTarget::Stdout(..) => Style::new().for_stdout(),
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref style, .. }) => style.clone(),
+        }
+
+        #[cfg(target_family = "wasm")]
         match self.inner.target {
             TermTarget::Stderr => Style::new().for_stderr(),
             TermTarget::Stdout => Style::new().for_stdout(),
-            #[cfg(unix)]
-            TermTarget::ReadWritePair(ReadWritePair { ref style, .. }) => style.clone(),
         }
     }
 
@@ -222,24 +270,25 @@ impl Term {
     }
 
     #[doc(hidden)]
-    pub fn write_str(&self, s: &str) -> io::Result<()> {
+    pub async fn write_str(&self, s: &str) -> io::Result<()> {
         match self.inner.buffer {
-            Some(ref buffer) => buffer.lock().unwrap().write_all(s.as_bytes()),
-            None => self.write_through(s.as_bytes()),
+            Some(ref buffer) => buffer.lock().unwrap().write_all(s.as_bytes()).await?,
+            None => self.write_through(s.as_bytes()).await?,
         }
+        self.flush().await
     }
 
     /// Write a string to the terminal and add a newline.
-    pub fn write_line(&self, s: &str) -> io::Result<()> {
+    pub async fn write_line(&self, s: &str) -> io::Result<()> {
         match self.inner.buffer {
             Some(ref mutex) => {
                 let mut buffer = mutex.lock().unwrap();
                 buffer.extend_from_slice(s.as_bytes());
                 buffer.push(b'\n');
-                Ok(())
             }
-            None => self.write_through(format!("{}\n", s).as_bytes()),
+            None => self.write_through(format!("{}\n\r", s).as_bytes()).await?,
         }
+        self.flush().await
     }
 
     /// Read a single character from the terminal.
@@ -283,26 +332,32 @@ impl Term {
     ///
     /// This does not include the trailing newline.  If the terminal is not
     /// user attended the return value will always be an empty string.
-    pub fn read_line(&self) -> io::Result<String> {
-        if !self.is_tty {
-            return Ok("".into());
+    pub async fn read_line(&self) -> io::Result<String> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if !self.is_tty {
+                return Ok("".into());
+            }
+            let mut rv = String::new();
+            self.inner.stdin.lock().unwrap().read_line(&mut rv).await?;
+            let len = rv.trim_end_matches(&['\r', '\n'][..]).len();
+            rv.truncate(len);
+            Ok(rv)
         }
-        let mut rv = String::new();
-        io::stdin().read_line(&mut rv)?;
-        let len = rv.trim_end_matches(&['\r', '\n'][..]).len();
-        rv.truncate(len);
-        Ok(rv)
+
+        #[cfg(target_family = "wasm")]
+        Ok("".into())
     }
 
     /// Read one line of input with initial text.
     ///
     /// This does not include the trailing newline.  If the terminal is not
     /// user attended the return value will always be an empty string.
-    pub fn read_line_initial_text(&self, initial: &str) -> io::Result<String> {
+    pub async fn read_line_initial_text(&self, initial: &str) -> io::Result<String> {
         if !self.is_tty {
             return Ok("".into());
         }
-        self.write_str(initial)?;
+        self.write_str(initial).await?;
 
         let mut chars: Vec<char> = initial.chars().collect();
 
@@ -310,19 +365,17 @@ impl Term {
             match self.read_key()? {
                 Key::Backspace => {
                     if chars.pop().is_some() {
-                        self.clear_chars(1)?;
+                        self.clear_chars(1).await?;
                     }
-                    self.flush()?;
                 }
                 Key::Char(chr) => {
                     chars.push(chr);
                     let mut bytes_char = [0; 4];
                     chr.encode_utf8(&mut bytes_char);
-                    self.write_str(chr.encode_utf8(&mut bytes_char))?;
-                    self.flush()?;
+                    self.write_str(chr.encode_utf8(&mut bytes_char)).await?;
                 }
                 Key::Enter => {
-                    self.write_line("")?;
+                    self.write_line("").await?;
                     break;
                 }
                 _ => (),
@@ -336,13 +389,13 @@ impl Term {
     /// This is similar to `read_line` but will not echo the output.  This
     /// also switches the terminal into a different mode where not all
     /// characters might be accepted.
-    pub fn read_secure_line(&self) -> io::Result<String> {
+    pub async fn read_secure_line(&self) -> io::Result<String> {
         if !self.is_tty {
             return Ok("".into());
         }
         match read_secure() {
             Ok(rv) => {
-                self.write_line("")?;
+                self.write_line("").await?;
                 Ok(rv)
             }
             Err(err) => Err(err),
@@ -354,15 +407,97 @@ impl Term {
     /// This forces the contents of the internal buffer to be written to
     /// the terminal.  This is unnecessary for unbuffered terminals which
     /// will automatically flush.
-    pub fn flush(&self) -> io::Result<()> {
+    pub async fn flush(&self) -> io::Result<()> {
         if let Some(ref buffer) = self.inner.buffer {
             let mut buffer = buffer.lock().unwrap();
             if !buffer.is_empty() {
-                self.write_through(&buffer[..])?;
+                self.write_through(&buffer[..]).await?;
                 buffer.clear();
             }
         }
+
+        #[cfg(not(target_family = "wasm"))]
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => stdout.lock().unwrap().flush().await?,
+            TermTarget::Stderr(stderr) => stderr.lock().unwrap().flush().await?,
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                write.flush().await?
+            }
+        }
+
         Ok(())
+    }
+
+    /// Flush internal buffers.
+    ///
+    /// This forces the contents of the internal buffer to be written to
+    /// the terminal.  This is unnecessary for unbuffered terminals which
+    /// will automatically flush.
+    pub fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(ref buffer) = self.inner.buffer {
+            let mut buffer = buffer.lock().unwrap();
+            if !buffer.is_empty() {
+                let _todo = self.poll_write_through(cx, &buffer[..]);
+                buffer.clear();
+            }
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                let stdout = Pin::new(&mut *stdout);
+                stdout.poll_flush(cx)
+            }
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                let stderr = Pin::new(&mut *stderr);
+                stderr.poll_flush(cx)
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_flush(cx)
+            }
+        }
+
+        #[cfg(target_family = "wasm")]
+        Poll::Ready(Ok(()))
+    }
+
+    /// Polls for this to be shutdown.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut poll = self.as_mut().poll_flush(cx);
+        if poll.is_ready() {
+            poll = match &self.inner.target {
+                TermTarget::Stdout(stdout) => {
+                    let mut stdout = stdout.lock().unwrap();
+                    let stdout = Pin::new(&mut *stdout);
+                    stdout.poll_shutdown(cx)
+                }
+                TermTarget::Stderr(stderr) => {
+                    let mut stderr = stderr.lock().unwrap();
+                    let stderr = Pin::new(&mut *stderr);
+                    stderr.poll_shutdown(cx)
+                }
+                #[cfg(unix)]
+                TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                    let mut write = write.lock().unwrap();
+                    let write = Pin::new(&mut *write);
+                    write.poll_shutdown(cx)
+                }
+            };
+        }
+        poll
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 
     /// Check if the terminal is indeed a terminal.
@@ -393,64 +528,75 @@ impl Term {
 
     /// Move the cursor to row `x` and column `y`. Values are 0-based.
     #[inline]
-    pub fn move_cursor_to(&self, x: usize, y: usize) -> io::Result<()> {
-        move_cursor_to(self, x, y)
+    pub async fn move_cursor_to(&self, x: usize, y: usize) -> io::Result<()> {
+        move_cursor_to(self, x, y).await?;
+        self.flush().await
     }
 
     /// Move the cursor up by `n` lines, if possible.
     ///
     /// If there are less than `n` lines above the current cursor position,
-    /// the cursor is moved to the top line of the terminal (i.e., as far up as possible).
+    /// the cursor is moved to the top line of the terminal (i.e., as far up as
+    /// possible).
     #[inline]
-    pub fn move_cursor_up(&self, n: usize) -> io::Result<()> {
-        move_cursor_up(self, n)
+    pub async fn move_cursor_up(&self, n: usize) -> io::Result<()> {
+        move_cursor_up(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor down by `n` lines, if possible.
     ///
     /// If there are less than `n` lines below the current cursor position,
-    /// the cursor is moved to the bottom line of the terminal (i.e., as far down as possible).
+    /// the cursor is moved to the bottom line of the terminal (i.e., as far
+    /// down as possible).
     #[inline]
-    pub fn move_cursor_down(&self, n: usize) -> io::Result<()> {
-        move_cursor_down(self, n)
+    pub async fn move_cursor_down(&self, n: usize) -> io::Result<()> {
+        move_cursor_down(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor `n` characters to the left, if possible.
     ///
-    /// If there are fewer than `n` characters to the left of the current cursor position,
-    /// the cursor is moved to the beginning of the line (i.e., as far to the left as possible).
+    /// If there are fewer than `n` characters to the left of the current cursor
+    /// position, the cursor is moved to the beginning of the line (i.e., as
+    /// far to the left as possible).
     #[inline]
-    pub fn move_cursor_left(&self, n: usize) -> io::Result<()> {
-        move_cursor_left(self, n)
+    pub async fn move_cursor_left(&self, n: usize) -> io::Result<()> {
+        move_cursor_left(self, n).await?;
+        self.flush().await
     }
 
     /// Move the cursor `n` characters to the right.
     ///
-    /// If there are fewer than `n` characters to the right of the current cursor position,
-    /// the cursor is moved to the end of the current line (i.e., as far to the right as possible).
+    /// If there are fewer than `n` characters to the right of the current
+    /// cursor position, the cursor is moved to the end of the current line
+    /// (i.e., as far to the right as possible).
     #[inline]
-    pub fn move_cursor_right(&self, n: usize) -> io::Result<()> {
-        move_cursor_right(self, n)
+    pub async fn move_cursor_right(&self, n: usize) -> io::Result<()> {
+        move_cursor_right(self, n).await?;
+        self.flush().await
     }
 
     /// Clear the current line.
     ///
     /// Position the cursor at the beginning of the current line.
     #[inline]
-    pub fn clear_line(&self) -> io::Result<()> {
-        clear_line(self)
+    pub async fn clear_line(&self) -> io::Result<()> {
+        clear_line(self).await?;
+        self.flush().await
     }
 
     /// Clear the last `n` lines before the current line.
     ///
     /// Position the cursor at the beginning of the first line that was cleared.
-    pub fn clear_last_lines(&self, n: usize) -> io::Result<()> {
-        self.move_cursor_up(n)?;
+    pub async fn clear_last_lines(&self, n: usize) -> io::Result<()> {
+        move_cursor_up(self, n).await?;
         for _ in 0..n {
-            self.clear_line()?;
-            self.move_cursor_down(1)?;
+            clear_line(self).await?;
+            move_cursor_down(self, 1).await?;
         }
-        self.move_cursor_up(n)?;
+        move_cursor_up(self, n).await?;
+        self.flush().await?;
         Ok(())
     }
 
@@ -458,21 +604,24 @@ impl Term {
     ///
     /// Move the cursor to the upper left corner of the screen.
     #[inline]
-    pub fn clear_screen(&self) -> io::Result<()> {
-        clear_screen(self)
+    pub async fn clear_screen(&self) -> io::Result<()> {
+        clear_screen(self).await?;
+        self.flush().await
     }
 
-    /// Clear everything from the current cursor position to the end of the screen.
-    /// The cursor stays in its position.
+    /// Clear everything from the current cursor position to the end of the
+    /// screen. The cursor stays in its position.
     #[inline]
-    pub fn clear_to_end_of_screen(&self) -> io::Result<()> {
-        clear_to_end_of_screen(self)
+    pub async fn clear_to_end_of_screen(&self) -> io::Result<()> {
+        clear_to_end_of_screen(self).await?;
+        self.flush().await
     }
 
     /// Clear the last `n` characters of the current line.
     #[inline]
-    pub fn clear_chars(&self, n: usize) -> io::Result<()> {
-        clear_chars(self, n)
+    pub async fn clear_chars(&self, n: usize) -> io::Result<()> {
+        clear_chars(self, n).await?;
+        self.flush().await
     }
 
     /// Set the terminal title.
@@ -485,53 +634,227 @@ impl Term {
 
     /// Make the cursor visible again.
     #[inline]
-    pub fn show_cursor(&self) -> io::Result<()> {
-        show_cursor(self)
+    pub async fn show_cursor(&self) -> io::Result<()> {
+        show_cursor(self).await?;
+        self.flush().await
     }
 
     /// Hide the cursor.
     #[inline]
-    pub fn hide_cursor(&self) -> io::Result<()> {
-        hide_cursor(self)
+    pub async fn hide_cursor(&self) -> io::Result<()> {
+        hide_cursor(self).await?;
+        self.flush().await
     }
 
     // helpers
 
+    fn poll_write(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                let stdout = Pin::new(&mut *stdout);
+                stdout.poll_write(cx, bytes)
+            }
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                let stderr = Pin::new(&mut *stderr);
+                stderr.poll_write(cx, bytes)
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let write = Pin::new(&mut *write);
+                write.poll_write(cx, bytes)
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _cx = cx;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+            }
+        }
+    }
+
     #[cfg(all(windows, feature = "windows-console-colors"))]
-    fn write_through(&self, bytes: &[u8]) -> io::Result<()> {
+    async fn write_through(&self, bytes: &[u8]) -> io::Result<()> {
         if self.is_msys_tty || !self.is_tty {
-            self.write_through_common(bytes)
+            self.write_through_common(bytes).await
         } else {
-            match self.inner.target {
-                TermTarget::Stdout => console_colors(self, Console::stdout()?, bytes),
-                TermTarget::Stderr => console_colors(self, Console::stderr()?, bytes),
+            match &self.inner.target {
+                TermTarget::Stdout(_stdout) => {
+                    console_colors(self, Console::stdout()?, bytes).await
+                }
+                TermTarget::Stderr(_stderr) => {
+                    console_colors(self, Console::stderr()?, bytes).await
+                }
+            }
+        }
+    }
+
+    #[cfg(all(windows, feature = "windows-console-colors"))]
+    fn poll_write_through(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        if self.is_msys_tty || !self.is_tty {
+            self.poll_write_through_common(cx, bytes)
+        } else {
+            match &self.inner.target {
+                TermTarget::Stdout(_stdout) => {
+                    console_colors_poll(self, cx, Console::stdout()?, bytes)
+                }
+                TermTarget::Stderr(_stderr) => {
+                    console_colors_poll(self, cx, Console::stderr()?, bytes)
+                }
             }
         }
     }
 
     #[cfg(not(all(windows, feature = "windows-console-colors")))]
-    fn write_through(&self, bytes: &[u8]) -> io::Result<()> {
-        self.write_through_common(bytes)
+    async fn write_through(&self, bytes: &[u8]) -> io::Result<()> {
+        self.write_through_common(bytes).await
     }
 
-    pub(crate) fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
-        match self.inner.target {
-            TermTarget::Stdout => {
-                io::stdout().write_all(bytes)?;
-                io::stdout().flush()?;
+    #[cfg(not(all(windows, feature = "windows-console-colors")))]
+    fn poll_write_through(&self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<usize>> {
+        self.poll_write_through_common(cx, bytes)
+    }
+
+    #[cfg(all(windows, feature = "windows-console-colors"))]
+    pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                stdout.write_all(bytes).await?;
+                stdout.flush().await?;
             }
-            TermTarget::Stderr => {
-                io::stderr().write_all(bytes)?;
-                io::stderr().flush()?;
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                stderr.write_all(bytes).await?;
+                stderr.flush().await?;
             }
             #[cfg(unix)]
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
                 let mut write = write.lock().unwrap();
-                write.write_all(bytes)?;
-                write.flush()?;
+                write.write_all(bytes).await?;
+                write.flush().await?;
             }
         }
         Ok(())
+    }
+
+    #[cfg(not(all(windows, feature = "windows-console-colors")))]
+    pub(crate) async fn write_through_common(&self, bytes: &[u8]) -> io::Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                stdout.lock().unwrap().write_all(bytes).await?;
+            }
+            TermTarget::Stderr(stderr) => {
+                stderr.lock().unwrap().write_all(bytes).await?;
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                write.write_all(bytes).await?;
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _bytes = bytes;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn poll_write_through_common(
+        &self,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        match &self.inner.target {
+            TermTarget::Stdout(stdout) => {
+                let mut stdout = stdout.lock().unwrap();
+                let mut poll = {
+                    let stdout = Pin::new(&mut *stdout);
+                    stdout.poll_write(cx, bytes)
+                };
+
+                poll = if let Poll::Ready(Ok(n)) = poll {
+                    let stdout = Pin::new(&mut *stdout);
+                    stdout.poll_flush(cx).map_ok(|()| n)
+                } else {
+                    poll
+                };
+
+                poll
+            }
+            TermTarget::Stderr(stderr) => {
+                let mut stderr = stderr.lock().unwrap();
+                let mut poll = {
+                    let stderr = Pin::new(&mut *stderr);
+                    stderr.poll_write(cx, bytes)
+                };
+
+                poll = if let Poll::Ready(Ok(n)) = poll {
+                    let stderr = Pin::new(&mut *stderr);
+                    stderr.poll_flush(cx).map_ok(|()| n)
+                } else {
+                    poll
+                };
+
+                poll
+            }
+            #[cfg(unix)]
+            TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
+                let mut write = write.lock().unwrap();
+                let mut poll = {
+                    let write = Pin::new(&mut *write);
+                    write.poll_write(cx, bytes)
+                };
+
+                poll = if let Poll::Ready(Ok(n)) = poll {
+                    let write = Pin::new(&mut *write);
+                    write.poll_flush(cx).map_ok(|()| n)
+                } else {
+                    poll
+                };
+
+                poll
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _cx = cx;
+            match &self.inner.target {
+                TermTarget::Stdout => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+                TermTarget::Stderr => {
+                    // TODO: console.log
+                    Poll::Ready(Ok(bytes.len()))
+                }
+            }
+        }
     }
 }
 
@@ -558,9 +881,9 @@ pub fn user_attended_stderr() -> bool {
 #[cfg(unix)]
 impl AsRawFd for Term {
     fn as_raw_fd(&self) -> RawFd {
-        match self.inner.target {
-            TermTarget::Stdout => libc::STDOUT_FILENO,
-            TermTarget::Stderr => libc::STDERR_FILENO,
+        match &self.inner.target {
+            TermTarget::Stdout(_stdout) => libc::STDOUT_FILENO,
+            TermTarget::Stderr(_stderr) => libc::STDERR_FILENO,
             TermTarget::ReadWritePair(ReadWritePair { ref write, .. }) => {
                 write.lock().unwrap().as_raw_fd()
             }
@@ -576,51 +899,78 @@ impl AsRawHandle for Term {
         };
 
         unsafe {
-            GetStdHandle(match self.inner.target {
-                TermTarget::Stdout => STD_OUTPUT_HANDLE,
-                TermTarget::Stderr => STD_ERROR_HANDLE,
+            GetStdHandle(match &self.inner.target {
+                TermTarget::Stdout(_stdout) => STD_OUTPUT_HANDLE,
+                TermTarget::Stderr(_stderr) => STD_ERROR_HANDLE,
             }) as RawHandle
         }
     }
 }
 
-impl Write for Term {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+impl AsyncWrite for Term {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         match self.inner.buffer {
-            Some(ref buffer) => buffer.lock().unwrap().write_all(buf),
-            None => self.write_through(buf),
-        }?;
-        Ok(buf.len())
+            Some(ref buffer) => Poll::Ready(
+                std::io::Write::write_all(&mut *buffer.lock().unwrap(), buf).map(|()| buf.len()),
+            ),
+            None => Term::poll_write(&self, cx, buf),
+        }
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        Term::flush(self)
-    }
-}
-
-impl<'a> Write for &'a Term {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.inner.buffer {
-            Some(ref buffer) => buffer.lock().unwrap().write_all(buf),
-            None => self.write_through(buf),
-        }?;
-        Ok(buf.len())
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Term::poll_flush(self, cx)
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        Term::flush(self)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Term::poll_shutdown(self, cx)
     }
 }
 
-impl Read for Term {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        io::stdin().read(buf)
+impl AsyncRead for Term {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut stdin = self.inner.stdin.lock().unwrap();
+            let stdin = Pin::new(&mut *stdin);
+            stdin.poll_read(cx, buf)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _cx = cx;
+            let _buf = buf;
+            Poll::Ready(Ok(()))
+        }
     }
 }
 
-impl<'a> Read for &'a Term {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        io::stdin().read(buf)
+impl<'a> AsyncRead for &'a Term {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut stdin = self.inner.stdin.lock().unwrap();
+            let stdin = Pin::new(&mut *stdin);
+            stdin.poll_read(cx, buf)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _cx = cx;
+            let _buf = buf;
+            Poll::Ready(Ok(()))
+        }
     }
 }
 

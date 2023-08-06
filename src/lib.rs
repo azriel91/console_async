@@ -10,37 +10,41 @@
 //!
 //! # Terminal Access
 //!
-//! The terminal is abstracted through the `console::Term` type.  It can
+//! The terminal is abstracted through the `console_async::Term` type.  It can
 //! either directly provide access to the connected terminal or by buffering
 //! up commands.  A buffered terminal will however not be completely buffered
 //! on windows where cursor movements are currently directly passed through.
 //!
 //! Example usage:
 //!
-//! ```
-//! # fn test() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::thread;
+//! ```rust
+//! # async fn test() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::time::Duration;
 //!
-//! use console::Term;
+//! use console_async::Term;
 //!
 //! let term = Term::stdout();
-//! term.write_line("Hello World!")?;
-//! thread::sleep(Duration::from_millis(2000));
-//! term.clear_line()?;
-//! # Ok(()) } test().unwrap();
+//! term.write_line("Hello World!").await?;
+//! tokio::time::sleep(Duration::from_millis(2000));
+//! term.clear_line().await?;
+//! # Ok(()) }
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() {
+//!     test().await.unwrap();
+//! }
 //! ```
 //!
 //! # Colors and Styles
 //!
-//! `console` automaticaly detects when to use colors based on the tty flag.  It also
-//! provides higher level wrappers for styling text and other things that can be
-//! displayed with the `style` function and utility types.
+//! `console_async` automaticaly detects when to use colors based on the tty
+//! flag.  It also provides higher level wrappers for styling text and other
+//! things that can be displayed with the `style` function and utility types.
 //!
 //! Example usage:
 //!
-//! ```
-//! use console::style;
+//! ```rust
+//! use console_async::style;
 //!
 //! println!("This is {} neat", style("quite").cyan());
 //! ```
@@ -48,7 +52,7 @@
 //! You can also store styles and apply them to text later:
 //!
 //! ```
-//! use console::Style;
+//! use console_async::Style;
 //!
 //! let cyan = Style::new().cyan();
 //! println!("This is {} neat", cyan.apply_to("quite"));
@@ -72,18 +76,18 @@
 //! By default all features are enabled.  The following features exist:
 //!
 //! * `unicode-width`: adds support for unicode width calculations
-//! * `ansi-parsing`: adds support for parsing ansi codes (this adds support
-//!   for stripping and taking ansi escape codes into account for length
+//! * `ansi-parsing`: adds support for parsing ansi codes (this adds support for
+//!   stripping and taking ansi escape codes into account for length
 //!   calculations).
 
-pub use crate::kb::Key;
-pub use crate::term::{
-    user_attended, user_attended_stderr, Term, TermFamily, TermFeatures, TermTarget,
-};
-pub use crate::utils::{
-    colors_enabled, colors_enabled_stderr, measure_text_width, pad_str, pad_str_with,
-    set_colors_enabled, set_colors_enabled_stderr, style, truncate_str, Alignment, Attribute,
-    Color, Emoji, Style, StyledObject,
+pub use crate::{
+    kb::Key,
+    term::{user_attended, user_attended_stderr, Term, TermFamily, TermFeatures, TermTarget},
+    utils::{
+        colors_enabled, colors_enabled_stderr, measure_text_width, pad_str, pad_str_with,
+        set_colors_enabled, set_colors_enabled_stderr, style, truncate_str, Alignment, Attribute,
+        Color, Emoji, Style, StyledObject,
+    },
 };
 
 #[cfg(feature = "ansi-parsing")]

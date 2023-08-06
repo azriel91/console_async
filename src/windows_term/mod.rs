@@ -1,34 +1,38 @@
-use std::cmp;
-use std::env;
-use std::ffi::OsStr;
-use std::fmt::Display;
-use std::io;
-use std::iter::once;
-use std::mem;
-use std::os::raw::c_void;
-use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::AsRawHandle;
-use std::slice;
-use std::{char, mem::MaybeUninit};
-
-use encode_unicode::error::InvalidUtf16Tuple;
-use encode_unicode::CharExt;
-use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
-use windows_sys::Win32::Storage::FileSystem::{
-    FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO,
+use std::{
+    char, cmp, env,
+    ffi::OsStr,
+    fmt::Display,
+    io,
+    iter::once,
+    mem,
+    mem::MaybeUninit,
+    os::{
+        raw::c_void,
+        windows::{ffi::OsStrExt, io::AsRawHandle},
+    },
+    slice,
 };
-use windows_sys::Win32::System::Console::{
-    FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleCursorInfo, GetConsoleMode,
-    GetConsoleScreenBufferInfo, GetNumberOfConsoleInputEvents, GetStdHandle, ReadConsoleInputW,
-    SetConsoleCursorInfo, SetConsoleCursorPosition, SetConsoleMode, SetConsoleTitleW,
-    CONSOLE_CURSOR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, INPUT_RECORD, KEY_EVENT,
-    KEY_EVENT_RECORD, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 
-use crate::common_term;
-use crate::kb::Key;
-use crate::term::{Term, TermTarget};
+use encode_unicode::{error::Utf16TupleError, CharExt};
+use windows_sys::Win32::{
+    Foundation::{HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
+    Storage::FileSystem::{FileNameInfo, GetFileInformationByHandleEx, FILE_NAME_INFO},
+    System::Console::{
+        FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleCursorInfo,
+        GetConsoleMode, GetConsoleScreenBufferInfo, GetNumberOfConsoleInputEvents, GetStdHandle,
+        ReadConsoleInputW, SetConsoleCursorInfo, SetConsoleCursorPosition, SetConsoleMode,
+        SetConsoleTitleW, CONSOLE_CURSOR_INFO, CONSOLE_SCREEN_BUFFER_INFO, COORD, INPUT_RECORD,
+        KEY_EVENT, KEY_EVENT_RECORD, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE,
+    },
+    UI::Input::KeyboardAndMouse::VIRTUAL_KEY,
+};
+
+use crate::{
+    common_term,
+    kb::Key,
+    term::{Term, TermTarget},
+};
 
 #[cfg(feature = "windows-console-colors")]
 mod colors;
@@ -40,14 +44,15 @@ const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x4;
 pub const DEFAULT_WIDTH: u16 = 79;
 
 pub fn as_handle(term: &Term) -> HANDLE {
-    // convert between windows_sys::Win32::Foundation::HANDLE and std::os::windows::raw::HANDLE
+    // convert between windows_sys::Win32::Foundation::HANDLE and
+    // std::os::windows::raw::HANDLE
     term.as_raw_handle() as HANDLE
 }
 
 pub fn is_a_terminal(out: &Term) -> bool {
     let (fd, others) = match out.target() {
-        TermTarget::Stdout => (STD_OUTPUT_HANDLE, [STD_INPUT_HANDLE, STD_ERROR_HANDLE]),
-        TermTarget::Stderr => (STD_ERROR_HANDLE, [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE]),
+        TermTarget::Stdout(..) => (STD_OUTPUT_HANDLE, [STD_INPUT_HANDLE, STD_ERROR_HANDLE]),
+        TermTarget::Stderr(..) => (STD_ERROR_HANDLE, [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE]),
     };
 
     if unsafe { console_on_any(&[fd]) } {
@@ -112,7 +117,8 @@ unsafe fn console_on_any(fds: &[STD_HANDLE]) -> bool {
 pub fn terminal_size(out: &Term) -> Option<(u16, u16)> {
     use windows_sys::Win32::System::Console::SMALL_RECT;
 
-    // convert between windows_sys::Win32::Foundation::HANDLE and std::os::windows::raw::HANDLE
+    // convert between windows_sys::Win32::Foundation::HANDLE and
+    // std::os::windows::raw::HANDLE
     let handle = out.as_raw_handle();
     let hand = handle as windows_sys::Win32::Foundation::HANDLE;
 
@@ -143,9 +149,9 @@ pub fn terminal_size(out: &Term) -> Option<(u16, u16)> {
     Some((rows, columns))
 }
 
-pub fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
+pub async fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_to(out, x, y);
+        return common_term::move_cursor_to(out, x, y).await;
     }
     if let Some((hand, _)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -161,31 +167,31 @@ pub fn move_cursor_to(out: &Term, x: usize, y: usize) -> io::Result<()> {
     Ok(())
 }
 
-pub fn move_cursor_up(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_up(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_up(out, n);
+        return common_term::move_cursor_up(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
-        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize - n)?;
+        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize - n).await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_down(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_down(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_down(out, n);
+        return common_term::move_cursor_down(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
-        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize + n)?;
+        move_cursor_to(out, 0, csbi.dwCursorPosition.Y as usize + n).await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_left(out, n);
+        return common_term::move_cursor_left(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
@@ -193,14 +199,15 @@ pub fn move_cursor_left(out: &Term, n: usize) -> io::Result<()> {
             out,
             csbi.dwCursorPosition.X as usize - n,
             csbi.dwCursorPosition.Y as usize,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
+pub async fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::move_cursor_right(out, n);
+        return common_term::move_cursor_right(out, n).await;
     }
 
     if let Some((_, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
@@ -208,14 +215,15 @@ pub fn move_cursor_right(out: &Term, n: usize) -> io::Result<()> {
             out,
             csbi.dwCursorPosition.X as usize + n,
             csbi.dwCursorPosition.Y as usize,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub fn clear_line(out: &Term) -> io::Result<()> {
+pub async fn clear_line(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_line(out);
+        return common_term::clear_line(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -233,9 +241,9 @@ pub fn clear_line(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
+pub async fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_chars(out, n);
+        return common_term::clear_chars(out, n).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -253,9 +261,9 @@ pub fn clear_chars(out: &Term, n: usize) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_screen(out: &Term) -> io::Result<()> {
+pub async fn clear_screen(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_screen(out);
+        return common_term::clear_screen(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -270,9 +278,9 @@ pub fn clear_screen(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
+pub async fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::clear_to_end_of_screen(out);
+        return common_term::clear_to_end_of_screen(out).await;
     }
     if let Some((hand, csbi)) = get_console_screen_buffer_info(as_handle(out)) {
         unsafe {
@@ -291,9 +299,9 @@ pub fn clear_to_end_of_screen(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn show_cursor(out: &Term) -> io::Result<()> {
+pub async fn show_cursor(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::show_cursor(out);
+        return common_term::show_cursor(out).await;
     }
     if let Some((hand, mut cci)) = get_console_cursor_info(as_handle(out)) {
         unsafe {
@@ -304,9 +312,9 @@ pub fn show_cursor(out: &Term) -> io::Result<()> {
     Ok(())
 }
 
-pub fn hide_cursor(out: &Term) -> io::Result<()> {
+pub async fn hide_cursor(out: &Term) -> io::Result<()> {
     if out.is_msys_tty {
-        return common_term::hide_cursor(out);
+        return common_term::hide_cursor(out).await;
     }
     if let Some((hand, mut cci)) = get_console_cursor_info(as_handle(out)) {
         unsafe {
@@ -386,8 +394,9 @@ pub fn read_single_key() -> io::Result<Key> {
         // This is a unicode character, in utf-16. Try to decode it by itself.
         match char::from_utf16_tuple((unicode_char, None)) {
             Ok(c) => {
-                // Maintain backward compatibility. The previous implementation (_getwch()) would return
-                // a special keycode for `Enter`, while ReadConsoleInputW() prefers to use '\r'.
+                // Maintain backward compatibility. The previous implementation (_getwch())
+                // would return a special keycode for `Enter`, while
+                // ReadConsoleInputW() prefers to use '\r'.
                 if c == '\r' {
                     Ok(Key::Enter)
                 } else if c == '\x08' {
@@ -399,13 +408,13 @@ pub fn read_single_key() -> io::Result<Key> {
                 }
             }
             // This is part of a surrogate pair. Try to read the second half.
-            Err(InvalidUtf16Tuple::MissingSecond) => {
+            Err(Utf16TupleError::MissingSecond) => {
                 // Confirm that there is a next character to read.
                 if get_key_event_count()? == 0 {
                     let message = format!(
                         "Read invlid utf16 {}: {}",
                         unicode_char,
-                        InvalidUtf16Tuple::MissingSecond
+                        Utf16TupleError::MissingSecond
                     );
                     return Err(io::Error::new(io::ErrorKind::InvalidData, message));
                 }
@@ -418,8 +427,9 @@ pub fn read_single_key() -> io::Result<Key> {
                 match char::from_utf16_tuple((unicode_char, Some(next_surrogate))) {
                     Ok(c) => Ok(Key::Char(c)),
 
-                    // Return an InvalidData error. This is the recommended value for UTF-related I/O errors.
-                    // (This error is given when reading a non-UTF8 file into a String, for example.)
+                    // Return an InvalidData error. This is the recommended value for UTF-related
+                    // I/O errors. (This error is given when reading a non-UTF8
+                    // file into a String, for example.)
                     Err(e) => {
                         let message = format!(
                             "Read invalid surrogate pair ({}, {}): {}",
@@ -430,8 +440,9 @@ pub fn read_single_key() -> io::Result<Key> {
                 }
             }
 
-            // Return an InvalidData error. This is the recommended value for UTF-related I/O errors.
-            // (This error is given when reading a non-UTF8 file into a String, for example.)
+            // Return an InvalidData error. This is the recommended value for UTF-related I/O
+            // errors. (This error is given when reading a non-UTF8 file into a String,
+            // for example.)
             Err(e) => {
                 let message = format!("Read invalid utf16 {}: {}", unicode_char, e);
                 Err(io::Error::new(io::ErrorKind::InvalidData, message))
@@ -449,12 +460,13 @@ fn get_stdin_handle() -> io::Result<HANDLE> {
     }
 }
 
-/// Get the number of pending events in the ReadConsoleInput queue. Note that while
-/// these aren't necessarily key events, the only way that multiple events can be
-/// put into the queue simultaneously is if a unicode character spanning multiple u16's
-/// is read.
+/// Get the number of pending events in the ReadConsoleInput queue. Note that
+/// while these aren't necessarily key events, the only way that multiple events
+/// can be put into the queue simultaneously is if a unicode character spanning
+/// multiple u16's is read.
 ///
-/// Therefore, this is accurate as long as at least one KEY_EVENT has already been read.
+/// Therefore, this is accurate as long as at least one KEY_EVENT has already
+/// been read.
 fn get_key_event_count() -> io::Result<u32> {
     let handle = get_stdin_handle()?;
     let mut event_count: u32 = unsafe { mem::zeroed() };

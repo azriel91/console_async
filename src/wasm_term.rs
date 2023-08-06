@@ -1,8 +1,6 @@
-use std::fmt::Display;
-use std::io;
+use std::{fmt::Display, io};
 
-use crate::kb::Key;
-use crate::term::Term;
+use crate::{kb::Key, term::Term};
 
 pub use crate::common_term::*;
 
